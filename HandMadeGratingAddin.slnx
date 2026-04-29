@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="DebugPluginLocally/DebugPluginLocally.csproj" />
+  <Project Path="HandMadeGratingAddinPlugin/HandMadeGratingAddinPlugin.csproj" Id="17f693d6-86e9-44a3-9a69-3569e0bce8b2" />
+  <Project Path="HandMadeGratingAddinVB/HandMadeGratingAddinVB.vbproj" />
+  <Project Path="Interaction/Interaction.csproj">
+    <BuildDependency Project="HandMadeGratingAddinPlugin/HandMadeGratingAddinPlugin.csproj" />
+  </Project>
+</Solution>

@@ -1,0 +1,12 @@
+{
+    "barDepth": 2.0,
+    "barWidth": 0.1875,
+    "onCenterSpacing": 1.1875,
+    "crossBarType": 0,
+    "crossBarOnCenter": 4.0,
+    "firstCrossBarOffset": 2.0,
+    "surfaceProfile": 0,
+    "banding": 0,
+    "spanDirection": 0,
+    "namingPrefix": ""
+}

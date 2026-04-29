@@ -1,0 +1,843 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingCommand: Defines and handles the "Create Grating" button.
+' Registered during add-in activation; placed on the Tools ribbon tab
+' in Part, Assembly, and ZeroDoc environments.
+'
+' Phase 3: Delegates to PerimeterSelectionService for the real workflow.
+' Phase 4: Opens input form after perimeter validation.
+' Phase 5: Generates bearing bar layout from perimeter + parameters.
+' Phase 6: Creates .ipt part files for each bearing bar.
+' Phase 7: Assembles all bearing bars into a positioned .iam assembly.
+' Phase 8: Extended input form (V2) with cross bar, surface, banding.
+' Phase 10: Project-driven workflow — all state flows through GratingProject.
+' Phase 11: Boundary Source Dialog before perimeter extraction.
+' Phase 12: Named sketch (GRATING_BOUNDARY) boundary source.
+' Phase 14: Project persistence — TryLoad at startup, Save after generation.
+' Phase 15: Cross bar profile library — resolve profile after parameters are captured.
+' Phase 16: New boundary sketch creation — create, edit, validate workflow.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.Drawing
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Defines the Create Grating button and handles its click event.
+''' </summary>
+Public Class GratingCommand
+
+    Private Const InternalName As String = "HMG_CreateGrating"
+    Private Const DisplayName As String = "Create Grating"
+    Private Const DescriptionText As String = "Creates a hand-made grating feature."
+    Private Const ToolTipText As String = "Create Grating"
+
+    Private _buttonDefinition As ButtonDefinition
+    Private _app As Application
+
+    ''' <summary>
+    ''' The most recent grating project. Holds perimeter, parameters,
+    ''' layout, generation, and assembly results for the last execution.
+    ''' </summary>
+    Public Property LastProject As GratingProject
+
+    ''' <summary>
+    ''' Optional dockable panel manager.  When available, the sketch edit
+    ''' instruction UI is shown as a docked panel (like iLogic) instead of
+    ''' a floating modeless form.  Set by GratingCommandManager.
+    ''' </summary>
+    Public Property DockPanel As DockableWindowManager
+
+    ''' <summary>
+    ''' Creates the button definition and wires up the click handler.
+    ''' Must be called every time the add-in activates.
+    ''' </summary>
+    Public Sub CreateDefinition(app As Application, clientId As String)
+        _app = app
+
+        ' Load icons from Resources folder next to the DLL
+        Dim smallIcon As Object = Nothing
+        Dim largeIcon As Object = Nothing
+        Try
+            Dim asmDir As String = IO.Path.GetDirectoryName(
+                Reflection.Assembly.GetExecutingAssembly().Location)
+            Dim resDir As String = IO.Path.Combine(asmDir, "Resources")
+
+            Dim small16 As String = IO.Path.Combine(resDir, "GratingIcon16.png")
+            Dim large32 As String = IO.Path.Combine(resDir, "GratingIcon32.png")
+
+            If IO.File.Exists(small16) Then
+                smallIcon = PictureDispHelper.ImageToPictureDisp(New Bitmap(small16))
+            End If
+            If IO.File.Exists(large32) Then
+                largeIcon = PictureDispHelper.ImageToPictureDisp(New Bitmap(large32))
+            End If
+
+            Trace.TraceInformation(": HMG: Icons loaded — small=" &
+                (smallIcon IsNot Nothing).ToString() &
+                ", large=" & (largeIcon IsNot Nothing).ToString())
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG: Could not load icons: " & ex.Message)
+        End Try
+
+        _buttonDefinition = app.CommandManager.ControlDefinitions.AddButtonDefinition(
+            DisplayName,
+            InternalName,
+            CommandTypesEnum.kShapeEditCmdType,
+            clientId,
+            DescriptionText,
+            ToolTipText,
+            smallIcon,
+            largeIcon)
+
+        AddHandler _buttonDefinition.OnExecute, AddressOf OnExecute
+        Trace.TraceInformation(": HandMadeGratingAddinVB: Button definition created.")
+    End Sub
+
+    ''' <summary>
+    ''' Creates a dedicated "Hand Made Grating" ribbon tab with the button
+    ''' in Part, Assembly, and ZeroDoc ribbons.
+    ''' Only call when firstTime is True during Activate.
+    ''' </summary>
+    Public Sub AddToRibbon(app As Application, clientId As String)
+        Dim uiMgr As UserInterfaceManager = app.UserInterfaceManager
+        Dim targetRibbons() As String = {"Part", "Assembly", "ZeroDoc"}
+
+        For Each ribbonName As String In targetRibbons
+            Try
+                Dim ribbon As Ribbon = uiMgr.Ribbons.Item(ribbonName)
+
+                ' Create (or reuse) a dedicated ribbon tab
+                Dim tabInternalName As String = "HMG_Tab_" & ribbonName
+                Dim hmgTab As RibbonTab = Nothing
+
+                Try
+                    hmgTab = ribbon.RibbonTabs.Item(tabInternalName)
+                Catch
+                    hmgTab = ribbon.RibbonTabs.Add(
+                        "Hand Made Grating",
+                        tabInternalName,
+                        clientId)
+                End Try
+
+                ' Add a panel inside the new tab
+                Dim panelInternalName As String = "HMG_Panel_" & ribbonName
+                Dim panel As RibbonPanel = Nothing
+
+                Try
+                    panel = hmgTab.RibbonPanels.Item(panelInternalName)
+                Catch
+                    panel = hmgTab.RibbonPanels.Add(
+                        "Grating",
+                        panelInternalName,
+                        clientId)
+                End Try
+
+                panel.CommandControls.AddButton(_buttonDefinition, True)
+                Trace.TraceInformation(": HandMadeGratingAddinVB: Button added to " &
+                                       ribbonName & " ribbon (dedicated tab).")
+            Catch ex As Exception
+                Trace.TraceWarning(": HandMadeGratingAddinVB: Skipped " &
+                                   ribbonName & " ribbon: " & ex.Message)
+            End Try
+        Next
+    End Sub
+
+    Private Sub OnExecute(context As NameValueMap)
+        Trace.TraceInformation(": HMG: Create Grating command executed.")
+
+        ' --- Phase 14: Acquire active Part document (needed for storage) ---
+        ' Capture early so it is available for both TryLoad and Save.
+        ' A Nothing value simply disables persistence without aborting the workflow.
+        Dim partDoc As PartDocument = Nothing
+        Try
+            Dim activeDoc As Document = _app.ActiveDocument
+            If activeDoc IsNot Nothing AndAlso
+               activeDoc.DocumentType = DocumentTypeEnum.kPartDocumentObject Then
+                partDoc = CType(activeDoc, PartDocument)
+            End If
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG Phase 14: Could not access active Part doc — " & ex.Message)
+        End Try
+
+        ' --- Phase 14: Try to restore a previously saved project ---
+        Dim storage As New GratingProjectStorage(_app)
+        Dim loadResult As GratingProjectLoadResult = GratingProjectLoadResult.NotFound()
+        If partDoc IsNot Nothing Then
+            loadResult = storage.TryLoad(partDoc)
+            Trace.TraceInformation(": HMG Phase 14: Load result — " & loadResult.Message)
+        End If
+
+        ' --- Phase 12: Named sketch lookup (before any dialog) ---
+        ' BoundarySourceService scans the active Part for GRATING_BOUNDARY
+        ' (and optionally a project alias).  The result is passed to the
+        ' dialog so it can enable / disable the named sketch option.
+        ' This lookup is safe to call before user interaction — never throws.
+        Dim boundaryService As New BoundarySourceService(_app)
+        Dim namedLookup As NamedSketchLookupResult =
+            boundaryService.FindNamedBoundarySketch()
+        Trace.TraceInformation(": HMG: Named sketch lookup — " & namedLookup.Message)
+
+        ' --- Phase 14 fast path ---
+        ' If a complete project was restored from iProperties AND its boundary
+        ' sketch is still present and resolved, skip the boundary source dialog
+        ' entirely and go straight to parameter review.
+        Dim project As GratingProject = Nothing
+        If loadResult.Found AndAlso loadResult.BoundaryResolved Then
+            project = loadResult.Project
+            Trace.TraceInformation(
+                ": HMG Phase 14: Fast path — restored project """ &
+                project.ProjectName &
+                """, boundary resolved. Skipping boundary dialog.")
+            GoTo skipDialog
+        End If
+
+        ' --- Phase 16: Pre-check removed ---
+        ' The pre-check while loop (Phase 11) that required a named or selected
+        ' sketch before showing the dialog is no longer needed.  "Import DWG"
+        ' and "Create new boundary sketch" are always-available options that do
+        ' not require pre-existing geometry, so the dialog is shown directly.
+
+        ' --- Phase 11: Boundary Source Dialog ---
+        ' Pass the named sketch lookup so the dialog can enable / prefer it.
+        Dim projectName As String = Nothing
+        Dim sourceType As BoundarySourceType = BoundarySourceType.SelectedSketch
+
+        Using sourceDialog As New BoundarySourceDialog("Grating", namedLookup)
+            Dim sourceResult As System.Windows.Forms.DialogResult =
+                sourceDialog.ShowDialog()
+
+            If sourceResult <> System.Windows.Forms.DialogResult.OK Then
+                Trace.TraceInformation(": HMG: User cancelled boundary source dialog.")
+                Return
+            End If
+
+            projectName = sourceDialog.ProjectName
+            sourceType = sourceDialog.SelectedSourceType
+        End Using
+
+        Trace.TraceInformation(": HMG: Boundary source — project=""" &
+            projectName & """, type=" & sourceType.ToString())
+
+        ' --- Route based on selected source type ---
+        Select Case sourceType
+            Case BoundarySourceType.NamedSketch
+                ' Phase 12: resolve via BoundarySourceService
+                project = ResolveFromNamedSketch(
+                    projectName, namedLookup.SketchName, boundaryService)
+
+            Case BoundarySourceType.SelectedSketch
+                project = ResolveFromSelectedSketch(projectName)
+
+            Case BoundarySourceType.ImportedDwg
+                project = ResolveFromImportedDwg(projectName, boundaryService)
+
+            Case BoundarySourceType.NewSketch
+                project = ResolveFromNewSketch(projectName, boundaryService)
+
+            Case Else
+                ' Future source types not yet implemented
+                MsgBox("The """ & sourceType.ToString() &
+                       """ boundary source is not yet available." & vbCrLf &
+                       "Please use one of the available options.",
+                       MsgBoxStyle.Information,
+                       "Hand Made Grating")
+                Return
+        End Select
+
+        skipDialog:
+        If project Is Nothing Then Return
+        LastProject = project
+
+        Trace.TraceInformation(": HMG: Project created — " & project.ToString())
+        Trace.TraceInformation(": HMG: Boundary source — " &
+            project.BoundarySource.ToString())
+        Trace.TraceInformation(": HMG: Perimeter OK — " &
+            project.Perimeter.SketchName & ", " &
+            project.Perimeter.EdgeCount & " edges, " &
+            project.Perimeter.OuterLoopVertices.Count & " vertices. Opening input form.")
+
+        ' --- Phase 4: Collect grating parameters ---
+        ' Phase 14: if we loaded saved params from iProperties, use them as defaults
+        ' so the user sees their previous settings pre-filled in the form.
+        Dim defaults As GratingParameters =
+            If(loadResult.Found AndAlso loadResult.SavedParameters IsNot Nothing,
+               loadResult.SavedParameters,
+               GratingParameters.CreateDefaults())
+
+        Dim userParams As GratingParameters = Nothing
+        Dim notchProfile As NotchProfileData = Nothing
+        Dim editingParams As Boolean = True
+
+        While editingParams
+            editingParams = False
+
+            If DockPanel IsNot Nothing AndAlso DockPanel.IsAvailable Then
+                userParams = DockPanel.ShowParameterInputPanel(defaults, notchProfile)
+                If userParams Is Nothing AndAlso DockPanel.WantsNotchEdit Then
+                    ' User clicked "Edit Notch Profile" — launch editor and loop
+                    Dim pendingP As GratingParameters = DockPanel.PendingParameters
+                    If pendingP IsNot Nothing Then defaults = pendingP
+                    notchProfile = LaunchNotchProfileEditor(defaults)
+                    editingParams = True
+                End If
+            Else
+                Using form As New GratingInputForm(defaults, notchProfile)
+                    Dim dlgResult = form.ShowDialog()
+                    If dlgResult = System.Windows.Forms.DialogResult.OK Then
+                        userParams = form.Parameters
+                    ElseIf dlgResult = System.Windows.Forms.DialogResult.Retry AndAlso
+                           form.WantsNotchEdit Then
+                        ' User clicked "Edit Notch Profile" — launch editor and loop
+                        Dim pendingP As GratingParameters = form.CurrentParameters
+                        If pendingP IsNot Nothing Then defaults = pendingP
+                        notchProfile = LaunchNotchProfileEditor(defaults)
+                        editingParams = True
+                    End If
+                End Using
+            End If
+        End While
+
+        If userParams Is Nothing Then
+            Trace.TraceInformation(": HMG: User cancelled input.")
+            Return
+        End If
+
+        project.Parameters = userParams
+        project.NotchProfile = notchProfile
+
+        ' --- Auto-generate default notch profile if none was drawn ---
+        If project.NotchProfile Is Nothing OrElse Not project.NotchProfile.IsValid Then
+            Try
+                Dim autoSpec As CrossBarNotchSpec =
+                    CrossBarNotchSpec.FromParameters(userParams)
+                Dim autoProfile As NotchProfileData =
+                    NotchProfileEditorService.CreateDefaultProfile(
+                        userParams.BarDepth, autoSpec)
+                If autoProfile IsNot Nothing AndAlso autoProfile.IsValid Then
+                    project.NotchProfile = autoProfile
+                    Trace.TraceInformation(
+                        ": HMG: Auto-generated default notch profile — " &
+                        autoProfile.ToString())
+                End If
+            Catch ex As Exception
+                Trace.TraceWarning(
+                    ": HMG: Could not auto-generate notch profile — " &
+                    ex.Message)
+            End Try
+        End If
+
+        Trace.TraceInformation(": HMG: Parameters stored — " &
+            "Direction=" & project.Parameters.SpanDirection.ToString() &
+            ", Depth=" & project.Parameters.BarDepth &
+            ", Width=" & project.Parameters.BarWidth &
+            ", BarOC=" & project.Parameters.OnCenterSpacing &
+            ", CrossBar=" & CrossBarTypeHelper.GetDisplayName(project.Parameters.CrossBar) &
+            ", CrossBarOC=" & project.Parameters.CrossBarOnCenter &
+            ", 1stOffset=" & project.Parameters.FirstCrossBarOffset &
+            ", Surface=" & project.Parameters.SurfaceProfile.ToString() &
+            ", Banding=" & project.Parameters.Banding.ToString())
+
+        ' --- Phase 15: Resolve cross bar profile ---
+        Dim profileLib As New CrossBarProfileLibrary(ResolveProfilesFolder())
+        Dim profileResult As CrossBarProfileResolveResult =
+            profileLib.Resolve(project.Parameters)
+
+        If profileResult.Success Then
+            project.CrossBarProfile = profileResult.Definition
+            Trace.TraceInformation(
+                ": HMG Phase 15: Profile resolved — " & profileResult.ToString())
+            If Not profileResult.FileFound Then
+                Trace.TraceWarning(
+                    ": HMG Phase 15: Profile source file not deployed — " &
+                    project.CrossBarProfile.SourceFileName &
+                    ". Copy the DWG files to the CrossBarProfiles folder.")
+            End If
+        Else
+            Trace.TraceWarning(
+                ": HMG Phase 15: Could not resolve cross bar profile — " &
+                profileResult.Message)
+        End If
+
+        ' --- Show progress panel in dockable browser ---
+        Dim hasProgress As Boolean =
+            DockPanel IsNot Nothing AndAlso DockPanel.IsAvailable
+        If hasProgress Then
+            DockPanel.ShowProgressPanel("Generating Grating...")
+            DockPanel.UpdateProgress(5, "Computing bearing bar layout...")
+        End If
+
+        ' --- Phase 5: Generate bearing bar layout ---
+        Trace.TraceInformation(": HMG: Starting bearing bar layout generation...")
+
+        Dim layoutService As New BearingBarLayoutService()
+        project.LayoutResult = layoutService.Generate(project.Perimeter, project.Parameters)
+
+        If Not project.LayoutResult.Success Then
+            If hasProgress Then DockPanel.ResetToIdle()
+            MsgBox("Layout generation failed:" & vbCrLf & vbCrLf &
+                   project.LayoutResult.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return
+        End If
+
+        Trace.TraceInformation(": HMG: Layout complete — " &
+            project.LayoutResult.Bars.Count & " bars generated.")
+
+        ' Log each bar for debugging
+        For Each bar As TrimmedBearingBar In project.LayoutResult.Bars
+            Trace.TraceInformation(": HMG:   " & bar.ToString())
+        Next
+
+        If hasProgress Then
+            DockPanel.UpdateProgress(20, "Generating bearing bar parts (" &
+                project.LayoutResult.Bars.Count & " bars)...")
+        End If
+
+        ' --- Phase 6: Generate .ipt part files ---
+        Trace.TraceInformation(": HMG: Starting bearing bar part generation...")
+
+        Dim partGenerator As New BearingBarPartGenerator(_app)
+        project.GenerationResult = partGenerator.Generate(
+            project.LayoutResult, project.Parameters, project.NotchProfile)
+
+        If Not project.GenerationResult.Success Then
+            If hasProgress Then DockPanel.ResetToIdle()
+            MsgBox("Part generation failed:" & vbCrLf & vbCrLf &
+                   project.GenerationResult.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return
+        End If
+
+        Trace.TraceInformation(": HMG: Part generation complete — " &
+            project.GenerationResult.TotalSaved & "/" &
+            project.GenerationResult.TotalRequested & " files saved.")
+
+        If hasProgress Then
+            DockPanel.UpdateProgress(45, "Generating cross bar parts...")
+        End If
+
+        ' --- Cross bar part generation ---
+        Trace.TraceInformation(": HMG: Starting cross bar part generation...")
+
+        Dim cbGenerator As New CrossBarPartGenerator(_app)
+        project.CrossBarResult = cbGenerator.Generate(
+            project.LayoutResult, project.Parameters)
+
+        If project.CrossBarResult.Success Then
+            Trace.TraceInformation(": HMG: Cross bar generation complete — " &
+                project.CrossBarResult.TotalCrossBars & " cross bars, " &
+                project.CrossBarResult.TotalSaved & " unique file(s) saved.")
+        Else
+            ' Non-fatal — bearing bars and assembly can still proceed
+            Trace.TraceWarning(": HMG: Cross bar generation failed — " &
+                project.CrossBarResult.ErrorMessage)
+        End If
+
+        If hasProgress Then
+            DockPanel.UpdateProgress(60, "Building grating assembly...")
+        End If
+
+        ' --- Phase 7: Generate assembly ---
+        Trace.TraceInformation(": HMG: Starting assembly generation...")
+
+        Dim asmGenerator As New GratingAssemblyGenerator(_app)
+        project.AssemblyResult = asmGenerator.Generate(
+            project.GenerationResult, project.LayoutResult, project.Parameters,
+            project.CrossBarResult)
+
+        If Not project.AssemblyResult.Success Then
+            If hasProgress Then DockPanel.ResetToIdle()
+            ' Show part generation results even if assembly failed
+            MsgBox(project.GenerationResult.ToSummary() & vbCrLf & vbCrLf &
+                   "Assembly generation failed:" & vbCrLf &
+                   project.AssemblyResult.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating — Result")
+            Return
+        End If
+
+        If hasProgress Then
+            DockPanel.UpdateProgress(90, "Saving project metadata...")
+        End If
+
+        ' Mark project complete
+        project.LastModifiedUtc = DateTime.UtcNow
+
+        Trace.TraceInformation(": HMG: Assembly complete — " &
+            project.AssemblyResult.TotalInserted & " bars inserted.")
+        Trace.TraceInformation(": HMG: Project complete — " & project.ToString())
+
+        ' --- Phase 14: Save project metadata to iProperties ---
+        If partDoc IsNot Nothing Then
+            Try
+                storage.Save(partDoc, project)
+            Catch ex As Exception
+                ' Non-fatal: log the failure but do not block the success result.
+                Trace.TraceWarning(
+                    ": HMG Phase 14: Save to iProperties failed — " & ex.Message)
+            End Try
+        Else
+            Trace.TraceWarning(
+                ": HMG Phase 14: No Part document reference — project not saved to iProperties.")
+        End If
+
+        If hasProgress Then
+            DockPanel.UpdateProgress(100, "Complete!")
+        End If
+
+        ' Build final summary including cross bar results
+        Dim summaryText As String =
+            project.GenerationResult.ToSummary() & vbCrLf & vbCrLf &
+            project.AssemblyResult.ToSummary()
+
+        If project.CrossBarResult IsNot Nothing AndAlso
+           project.CrossBarResult.Success Then
+            summaryText &= vbCrLf & vbCrLf &
+                project.CrossBarResult.ToSummary()
+        End If
+
+        MsgBox(summaryText,
+               MsgBoxStyle.Information,
+               "Hand Made Grating — Generation Result")
+
+        If hasProgress Then
+            DockPanel.ResetToIdle()
+        End If
+    End Sub
+
+    ' ==================================================================
+    '  Boundary source resolution helpers
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Returns True if there is an active edit sketch or a pre-selected
+    ''' sketch/sketch entity available right now, without consuming it.
+    ''' Mirrors the resolution logic in PerimeterSelectionService so the
+    ''' user gets a clear early error before any dialog opens.
+    ''' </summary>
+    Private Function HasSelectableSketch() As Boolean
+        Try
+            ' Must be inside a Part document
+            Dim doc As Document = _app.ActiveDocument
+            If doc Is Nothing Then Return False
+            If doc.DocumentType <> DocumentTypeEnum.kPartDocumentObject Then Return False
+
+            ' Strategy 1: active edit sketch
+            Try
+                If TypeOf _app.ActiveEditObject Is PlanarSketch Then Return True
+            Catch
+            End Try
+
+            ' Strategy 2: something sketch-like in the SelectSet
+            Try
+                Dim sel As SelectSet = doc.SelectSet
+                For i As Integer = 1 To sel.Count
+                    Dim obj As Object = sel.Item(i)
+                    If TypeOf obj Is PlanarSketch Then Return True
+                    Try
+                        If TypeOf obj.Parent Is PlanarSketch Then Return True
+                    Catch
+                    End Try
+                Next
+            Catch
+            End Try
+
+        Catch
+        End Try
+        Return False
+    End Function
+
+    ''' <summary>
+    ''' Resolves the perimeter from the currently active/selected sketch
+    ''' using the existing PerimeterSelectionService, then wraps the
+    ''' result in a GratingProject with SelectedSketch source info.
+    ''' Returns Nothing if selection failed (error already shown).
+    ''' </summary>
+    Private Function ResolveFromSelectedSketch(projectName As String) As GratingProject
+        Trace.TraceInformation(": HMG: Resolving boundary from selected sketch...")
+
+        Dim service As New PerimeterSelectionService(_app)
+        Dim result As SelectionResult = service.Execute()
+
+        If Not result.Success Then
+            MsgBox(result.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return Nothing
+        End If
+
+        Dim source As BoundarySourceInfo =
+            BoundarySourceInfo.FromSelectedSketch(
+                If(result.Perimeter.SketchName, "Sketch"))
+
+        Return GratingProject.Create(projectName, source, result)
+    End Function
+
+    ''' <summary>
+    ''' Phase 12: Resolves the perimeter from a named boundary sketch using
+    ''' BoundarySourceService, then wraps the result in a GratingProject
+    ''' with SourceType = NamedSketch.
+    ''' Returns Nothing if resolution failed (error already shown).
+    ''' </summary>
+    Private Function ResolveFromNamedSketch(
+            projectName As String,
+            sketchName As String,
+            service As BoundarySourceService) As GratingProject
+
+        Trace.TraceInformation(
+            ": HMG: Resolving boundary from named sketch '" & sketchName & "'...")
+
+        Dim result As SelectionResult = service.ResolveFromNamedSketch(sketchName)
+
+        If Not result.Success Then
+            MsgBox(result.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return Nothing
+        End If
+
+        Dim source As BoundarySourceInfo =
+            BoundarySourceInfo.FromNamedSketch(sketchName)
+
+        Trace.TraceInformation(
+            ": HMG: Named sketch resolved — " &
+            result.Perimeter.EdgeCount & " edges, " &
+            result.Perimeter.OuterLoopVertices.Count & " vertices.")
+
+        Return GratingProject.Create(projectName, source, result)
+    End Function
+
+    ''' <summary>
+    ''' Phase 13: Imports a DWG/DXF file via DwgImportService, which
+    ''' creates (or replaces) the GRATING_BOUNDARY sketch, then resolves
+    ''' the perimeter through the standard BoundarySourceService pipeline.
+    ''' Returns Nothing if the user cancels or import/resolution fails.
+    ''' </summary>
+    Private Function ResolveFromImportedDwg(
+            projectName As String,
+            boundaryService As BoundarySourceService) As GratingProject
+
+        Trace.TraceInformation(": HMG Phase 13: Starting DWG/DXF import...")
+
+        Dim importService As New DwgImportService(_app)
+        Dim importResult As DwgImportResult = importService.ImportAndCreateSketch()
+
+        If Not importResult.Success Then
+            ' User cancelled file dialog or import failed
+            If Not String.IsNullOrEmpty(importResult.ErrorMessage) AndAlso
+               importResult.ErrorMessage <> "User cancelled file selection." Then
+                MsgBox(importResult.ErrorMessage,
+                       MsgBoxStyle.Exclamation,
+                       "Hand Made Grating — DWG Import")
+            End If
+            Trace.TraceInformation(
+                ": HMG Phase 13: Import aborted — " & importResult.ToString())
+            Return Nothing
+        End If
+
+        Trace.TraceInformation(
+            ": HMG Phase 13: " & importResult.ToString() &
+            ". Resolving perimeter via BoundarySourceService...")
+
+        ' Resolve the newly created sketch through the standard pipeline
+        Dim sketchName As String = importResult.SketchName
+        Dim result As SelectionResult = boundaryService.ResolveFromNamedSketch(sketchName)
+
+        If Not result.Success Then
+            MsgBox(result.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return Nothing
+        End If
+
+        Dim source As BoundarySourceInfo =
+            BoundarySourceInfo.FromImportedDwg(sketchName, importResult.SourceFilePath)
+
+        Trace.TraceInformation(
+            ": HMG Phase 13: DWG import resolved — " &
+            result.Perimeter.EdgeCount & " edges, " &
+            result.Perimeter.OuterLoopVertices.Count & " vertices.")
+
+        Return GratingProject.Create(projectName, source, result)
+    End Function
+
+    ''' <summary>
+    ''' Phase 16: Creates a new empty boundary sketch, guides the user
+    ''' through drawing the perimeter via a modeless instruction form,
+    ''' then validates through the standard BoundarySourceService pipeline.
+    '''
+    ''' Uses a user-confirmed flow (the user clicks "I'm Done" when
+    ''' finished) rather than event-driven sketch completion detection.
+    ''' This is more stable because Inventor's sketch-exit events can
+    ''' be unreliable when fired from an add-in context.
+    '''
+    ''' Returns Nothing if the user cancels or validation fails.
+    ''' </summary>
+    Private Function ResolveFromNewSketch(
+            projectName As String,
+            boundaryService As BoundarySourceService) As GratingProject
+
+        Trace.TraceInformation(": HMG Phase 16: Starting new boundary sketch workflow...")
+
+        ' --- 1. Create the sketch ---
+        Dim createResult As NewSketchCreationResult =
+            boundaryService.CreateNewBoundarySketch(projectName)
+
+        If Not createResult.Success Then
+            MsgBox(createResult.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return Nothing
+        End If
+
+        Dim sketchName As String = createResult.SketchName
+        Trace.TraceInformation(
+            ": HMG Phase 16: Sketch created — '" & sketchName &
+            "'. Entering edit mode...")
+
+        ' --- 2. Enter edit mode ---
+        Dim editEntered As Boolean = boundaryService.EnterSketchEditMode(sketchName)
+        If Not editEntered Then
+            Trace.TraceWarning(
+                ": HMG Phase 16: Could not auto-enter edit mode. " &
+                "User will need to double-click the sketch to edit it.")
+        End If
+
+        ' --- 3. Show instructions (docked panel preferred, form fallback) ---
+        ' If the DockableWindowManager is available, show instructions in a
+        ' native docked panel (like iLogic).  Otherwise fall back to the
+        ' standalone modeless form.
+        Dim userDone As Boolean = False
+
+        If DockPanel IsNot Nothing AndAlso DockPanel.IsAvailable Then
+            Trace.TraceInformation(
+                ": HMG Phase 16: Using docked panel for sketch edit instructions.")
+            userDone = DockPanel.ShowSketchEditPanel(sketchName)
+        Else
+            Trace.TraceInformation(
+                ": HMG Phase 16: Docked panel not available — using floating form.")
+            Dim action As SketchEditInstructionForm.UserAction
+            Using instrForm As New SketchEditInstructionForm(sketchName)
+                instrForm.InventorHwnd = New IntPtr(_app.MainFrameHWND)
+                action = instrForm.ShowNonModal()
+            End Using
+            userDone = (action = SketchEditInstructionForm.UserAction.Done)
+        End If
+
+        If Not userDone Then
+            Trace.TraceInformation(": HMG Phase 16: User cancelled during sketch edit.")
+            boundaryService.ExitSketchEditMode(sketchName)
+            Return Nothing
+        End If
+
+        ' --- 4. Exit edit mode (if still active) ---
+        boundaryService.ExitSketchEditMode(sketchName)
+
+        ' --- 5. Validate via standard pipeline ---
+        Trace.TraceInformation(
+            ": HMG Phase 16: User finished drawing. Validating sketch '" &
+            sketchName & "'...")
+
+        Dim result As SelectionResult = boundaryService.ResolveFromNamedSketch(sketchName)
+
+        If Not result.Success Then
+            MsgBox("The boundary sketch could not be validated:" & vbCrLf & vbCrLf &
+                   result.ErrorMessage & vbCrLf & vbCrLf &
+                   "Ensure the sketch contains a closed loop that defines " &
+                   "the grating perimeter.",
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating — Validation Failed")
+            Trace.TraceWarning(
+                ": HMG Phase 16: Validation failed — " & result.ErrorMessage)
+            Return Nothing
+        End If
+
+        Dim source As BoundarySourceInfo =
+            BoundarySourceInfo.FromNewSketch(sketchName)
+
+        Trace.TraceInformation(
+            ": HMG Phase 16: New sketch validated — " &
+            result.Perimeter.EdgeCount & " edges, " &
+            result.Perimeter.OuterLoopVertices.Count & " vertices.")
+
+        Return GratingProject.Create(projectName, source, result)
+    End Function
+
+    ''' <summary>
+    ''' Launches the notch profile editor using the given parameter
+    ''' defaults to derive bar dimensions and notch specification.
+    ''' Returns the captured profile, or Nothing if the user cancelled
+    ''' or drew nothing.
+    ''' </summary>
+    Private Function LaunchNotchProfileEditor(
+            defaults As GratingParameters) As NotchProfileData
+        Try
+            Dim notchSpec As CrossBarNotchSpec = CrossBarNotchSpec.FromParameters(defaults)
+            Dim editor As New NotchProfileEditorService(_app)
+            Dim result As NotchProfileData = editor.EditProfile(
+                defaults.BarDepth, defaults.BarWidth, notchSpec)
+            If result IsNot Nothing AndAlso result.IsValid Then
+                Trace.TraceInformation(
+                    ": HMG: Notch profile editor returned — " & result.ToString())
+                Return result
+            Else
+                Trace.TraceInformation(
+                    ": HMG: Notch profile editor — no valid profile captured.")
+                Return Nothing
+            End If
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG: Notch profile editor error — " & ex.Message)
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Phase 15: Returns the absolute path to the CrossBarProfiles folder
+    ''' that should be deployed next to the add-in DLL.
+    ''' Returns an empty string if the DLL path cannot be determined.
+    ''' </summary>
+    Private Shared Function ResolveProfilesFolder() As String
+        Try
+            Dim asmDir As String = IO.Path.GetDirectoryName(
+                Reflection.Assembly.GetExecutingAssembly().Location)
+            Return IO.Path.Combine(asmDir, CrossBarProfileLibrary.ProfilesSubfolder)
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG Phase 15: Could not resolve profiles folder — " & ex.Message)
+            Return String.Empty
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Removes the click handler. Call during Deactivate.
+    ''' </summary>
+    Public Sub Cleanup()
+        If _buttonDefinition IsNot Nothing Then
+            RemoveHandler _buttonDefinition.OnExecute, AddressOf OnExecute
+            _buttonDefinition = Nothing
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Helper to convert System.Drawing.Image to COM IPictureDisp
+    ''' using the protected AxHost.GetIPictureDispFromPicture method.
+    ''' </summary>
+    Private Class PictureDispHelper
+        Inherits System.Windows.Forms.AxHost
+
+        Private Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Shared Function ImageToPictureDisp(img As Image) As Object
+            Return GetIPictureDispFromPicture(img)
+        End Function
+    End Class
+
+End Class

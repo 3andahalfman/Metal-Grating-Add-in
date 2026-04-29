@@ -1,0 +1,8 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Addin Type="Plugin">
+  <ClassId>{b2360204-0f9a-4ae4-8261-132d1600494b}</ClassId>
+  <ClientId>{b2360204-0f9a-4ae4-8261-132d1600494b}</ClientId>
+  <DisplayName>HandMadeGratingAddinPlugin</DisplayName>
+  <Description>a HandMadeGratingAddinPlugin</Description>
+  <Assembly>HandMadeGratingAddinPlugin.dll</Assembly>
+</Addin>

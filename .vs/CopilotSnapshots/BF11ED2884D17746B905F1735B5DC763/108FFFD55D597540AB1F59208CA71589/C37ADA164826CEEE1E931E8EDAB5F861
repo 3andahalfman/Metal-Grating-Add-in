@@ -1,0 +1,632 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' HmgPanelControl: UserControl hosted inside an Inventor DockableWindow.
+' Provides a native docked panel experience similar to iLogic or
+' Design Accelerator panels.
+'
+' The panel supports multiple display modes:
+'   Idle        — default state showing add-in info
+'   SketchEdit  — sketch editing instructions with Done/Cancel buttons
+'
+' The panel uses vertical stacking layout (DockStyle.Top) so it
+' resizes properly when the dockable window is resized by the user.
+'
+' Signaling: when the user clicks Done or Cancel during SketchEdit
+' mode, the IsActionTaken flag is set.  The caller polls this flag
+' via a DoEvents loop (same pattern as NoBoundarySketchForm).
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Drawing
+Imports System.Windows.Forms
+
+''' <summary>
+''' UserControl that lives inside an Inventor DockableWindow.
+''' Shows context-sensitive content for the HMG workflow.
+''' </summary>
+Public Class HmgPanelControl
+    Inherits UserControl
+
+    ' ==================================================================
+    '  Panel modes and actions
+    ' ==================================================================
+
+    ''' <summary>Display mode of the panel.</summary>
+    Public Enum PanelMode
+        ''' <summary>Default idle state — shows add-in info.</summary>
+        Idle = 0
+        ''' <summary>Sketch editing — shows drawing instructions.</summary>
+        SketchEdit = 1
+        ''' <summary>Parameter input — shows grating parameter controls.</summary>
+        ParameterInput = 2
+    End Enum
+
+    ''' <summary>Action taken by the user in SketchEdit mode.</summary>
+    Public Enum UserAction
+        ''' <summary>No action yet.</summary>
+        None = 0
+        ''' <summary>User clicked Done — finished drawing.</summary>
+        Done = 1
+        ''' <summary>User clicked Cancel.</summary>
+        Cancel = 2
+    End Enum
+
+    ' ==================================================================
+    '  State
+    ' ==================================================================
+
+    Private _mode As PanelMode = PanelMode.Idle
+    Private _action As UserAction = UserAction.None
+    Private _actionTaken As Boolean = False
+    Private _sketchName As String = ""
+    Private _paramDefaults As GratingParameters
+    Private _resultParams As GratingParameters
+
+    ' ==================================================================
+    '  Controls
+    ' ==================================================================
+
+    ' Content panel that holds all dynamic content
+    Private _contentPanel As Panel
+
+    ' Idle mode controls
+    Private _lblIdleTitle As Label
+    Private _lblIdleInfo As Label
+
+    ' Sketch edit mode controls
+    Private _lblEditTitle As Label
+    Private _lblEditSketchName As Label
+    Private _lblEditInstructions As Label
+    Private _btnDone As Button
+    Private _btnCancel As Button
+
+    ' Parameter input mode controls
+    Private _cboSpanDirection As ComboBox
+    Private _txtBarDepth As TextBox
+    Private _txtBarWidth As TextBox
+    Private _txtOnCenterSpacing As TextBox
+    Private _cboCrossBarType As ComboBox
+    Private _cboCrossBarOC As ComboBox
+    Private _txtFirstCrossBarOffset As TextBox
+    Private _cboSurfaceProfile As ComboBox
+    Private _cboBanding As ComboBox
+    Private _txtOutputFolder As TextBox
+    Private _btnBrowseFolder As Button
+    Private _txtNamingPrefix As TextBox
+    Private _btnParamOK As Button
+    Private _btnParamCancel As Button
+
+    ' ==================================================================
+    '  Public properties
+    ' ==================================================================
+
+    ''' <summary>The last action taken by the user.</summary>
+    Public ReadOnly Property LastAction As UserAction
+        Get
+            Return _action
+        End Get
+    End Property
+
+    ''' <summary>True once the user clicks Done or Cancel.</summary>
+    Public ReadOnly Property IsActionTaken As Boolean
+        Get
+            Return _actionTaken
+        End Get
+    End Property
+
+    ''' <summary>Current display mode.</summary>
+    Public ReadOnly Property Mode As PanelMode
+        Get
+            Return _mode
+        End Get
+    End Property
+
+    ''' <summary>Validated parameters from the last ParameterInput accept.</summary>
+    Public ReadOnly Property ResultParameters As GratingParameters
+        Get
+            Return _resultParams
+        End Get
+    End Property
+
+    ' ==================================================================
+    '  Constructor
+    ' ==================================================================
+
+    Public Sub New()
+        BuildLayout()
+        ShowIdleContent()
+    End Sub
+
+    ' ==================================================================
+    '  Public mode-switching methods
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Switches the panel to sketch edit mode with instructions for
+    ''' the given sketch name. Resets the action state so the caller
+    ''' can poll <see cref="IsActionTaken"/>.
+    ''' </summary>
+    Public Sub EnterSketchEditMode(sketchName As String)
+        _sketchName = sketchName
+        _action = UserAction.None
+        _actionTaken = False
+        _mode = PanelMode.SketchEdit
+        ShowSketchEditContent()
+    End Sub
+
+    ''' <summary>
+    ''' Returns the panel to idle mode. Resets action state.
+    ''' </summary>
+    Public Sub ResetToIdle()
+        _mode = PanelMode.Idle
+        _action = UserAction.None
+        _actionTaken = False
+        ShowIdleContent()
+    End Sub
+
+    ''' <summary>
+    ''' Switches the panel to parameter input mode pre-populated with
+    ''' the given defaults.  Resets the action state so the caller can
+    ''' poll <see cref="IsActionTaken"/> and read <see cref="ResultParameters"/>.
+    ''' </summary>
+    Public Sub EnterParameterInputMode(defaults As GratingParameters)
+        _paramDefaults = defaults
+        _resultParams = Nothing
+        _action = UserAction.None
+        _actionTaken = False
+        _mode = PanelMode.ParameterInput
+        ShowParameterInputContent()
+    End Sub
+
+    ' ==================================================================
+    '  Layout construction
+    ' ==================================================================
+
+    Private Sub BuildLayout()
+        Me.BackColor = SystemColors.Control
+        Me.Dock = DockStyle.Fill
+        Me.AutoScroll = True
+        Me.Padding = New Padding(0)
+
+        ' Main content panel fills the entire control
+        _contentPanel = New Panel()
+        _contentPanel.Dock = DockStyle.Fill
+        _contentPanel.AutoScroll = True
+        _contentPanel.Padding = New Padding(10, 10, 10, 10)
+        Me.Controls.Add(_contentPanel)
+
+        ' --- Idle mode controls ---
+        _lblIdleTitle = New Label()
+        _lblIdleTitle.Text = "Hand Made Grating"
+        _lblIdleTitle.Font = New Font(Me.Font.FontFamily, 10.0F, FontStyle.Bold)
+        _lblIdleTitle.AutoSize = True
+        _lblIdleTitle.Margin = New Padding(0, 0, 0, 8)
+
+        _lblIdleInfo = New Label()
+        _lblIdleInfo.Text =
+            "Click ""Create Grating"" on the ribbon to begin." & vbCrLf & vbCrLf &
+            "This panel will show workflow instructions " &
+            "when a grating operation is in progress."
+        _lblIdleInfo.AutoSize = False
+        _lblIdleInfo.MaximumSize = New Size(280, 0)
+        _lblIdleInfo.AutoSize = True
+        _lblIdleInfo.ForeColor = SystemColors.GrayText
+
+        ' --- Sketch edit mode controls ---
+        _lblEditTitle = New Label()
+        _lblEditTitle.Text = "Draw Boundary Perimeter"
+        _lblEditTitle.Font = New Font(Me.Font.FontFamily, 10.0F, FontStyle.Bold)
+        _lblEditTitle.AutoSize = True
+        _lblEditTitle.Margin = New Padding(0, 0, 0, 6)
+
+        _lblEditSketchName = New Label()
+        _lblEditSketchName.Text = ""
+        _lblEditSketchName.AutoSize = True
+        _lblEditSketchName.ForeColor = Color.FromArgb(0, 102, 204)
+        _lblEditSketchName.Margin = New Padding(0, 0, 0, 10)
+
+        _lblEditInstructions = New Label()
+        _lblEditInstructions.Text = ""
+        _lblEditInstructions.AutoSize = False
+        _lblEditInstructions.MaximumSize = New Size(280, 0)
+        _lblEditInstructions.AutoSize = True
+        _lblEditInstructions.Margin = New Padding(0, 0, 0, 14)
+
+        _btnDone = New Button()
+        _btnDone.Text = "I'm Done"
+        _btnDone.Size = New Size(100, 30)
+        _btnDone.Margin = New Padding(0, 0, 6, 0)
+        _btnDone.FlatStyle = FlatStyle.System
+        AddHandler _btnDone.Click, AddressOf OnDoneClick
+
+        _btnCancel = New Button()
+        _btnCancel.Text = "Cancel"
+        _btnCancel.Size = New Size(80, 30)
+        _btnCancel.FlatStyle = FlatStyle.System
+        AddHandler _btnCancel.Click, AddressOf OnCancelClick
+    End Sub
+
+    ' ==================================================================
+    '  Content display helpers
+    ' ==================================================================
+
+    Private Sub ShowIdleContent()
+        _contentPanel.SuspendLayout()
+        _contentPanel.Controls.Clear()
+
+        ' Use FlowLayoutPanel for vertical stacking
+        Dim flow As New FlowLayoutPanel()
+        flow.FlowDirection = FlowDirection.TopDown
+        flow.WrapContents = False
+        flow.AutoSize = True
+        flow.Dock = DockStyle.Top
+        flow.Padding = New Padding(0)
+
+        flow.Controls.Add(_lblIdleTitle)
+        flow.Controls.Add(_lblIdleInfo)
+
+        _contentPanel.Controls.Add(flow)
+        _contentPanel.ResumeLayout(True)
+    End Sub
+
+    Private Sub ShowSketchEditContent()
+        _contentPanel.SuspendLayout()
+        _contentPanel.Controls.Clear()
+
+        ' Update text for current sketch
+        _lblEditSketchName.Text = "Sketch: " & _sketchName
+
+        _lblEditInstructions.Text =
+            "Draw a closed perimeter that defines the " &
+            "grating outline:" & vbCrLf & vbCrLf &
+            ChrW(&H2022) & " Use Lines, Arcs, or Splines" & vbCrLf &
+            ChrW(&H2022) & " All curves must connect end-to-end" & vbCrLf &
+            ChrW(&H2022) & " The loop must be closed" & vbCrLf & vbCrLf &
+            "Click ""I'm Done"" when finished."
+
+        ' Use FlowLayoutPanel for vertical stacking
+        Dim flow As New FlowLayoutPanel()
+        flow.FlowDirection = FlowDirection.TopDown
+        flow.WrapContents = False
+        flow.AutoSize = True
+        flow.Dock = DockStyle.Top
+        flow.Padding = New Padding(0)
+
+        flow.Controls.Add(_lblEditTitle)
+        flow.Controls.Add(_lblEditSketchName)
+        flow.Controls.Add(_lblEditInstructions)
+
+        ' Button row
+        Dim buttonFlow As New FlowLayoutPanel()
+        buttonFlow.FlowDirection = FlowDirection.LeftToRight
+        buttonFlow.AutoSize = True
+        buttonFlow.Margin = New Padding(0, 4, 0, 0)
+        buttonFlow.Controls.Add(_btnDone)
+        buttonFlow.Controls.Add(_btnCancel)
+        flow.Controls.Add(buttonFlow)
+
+        _contentPanel.Controls.Add(flow)
+        _contentPanel.ResumeLayout(True)
+    End Sub
+
+    Private Sub ShowParameterInputContent()
+        _contentPanel.SuspendLayout()
+        _contentPanel.Controls.Clear()
+
+        Dim scroll As New Panel()
+        scroll.Dock = DockStyle.Fill
+        scroll.AutoScroll = True
+
+        Dim x As Integer = 6
+        Dim y As Integer = 6
+        Dim cw As Integer = 190
+
+        ' --- Title ---
+        AddBoldLabel(scroll, "Parameters", x, y, 10.0F)
+        y += 28
+
+        ' ====== Bearing Bars ======
+        AddBoldLabel(scroll, "Bearing Bars", x, y)
+        y += 20
+
+        AddFieldLabel(scroll, "Span Direction:", x, y)
+        y += 16
+        _cboSpanDirection = New ComboBox()
+        _cboSpanDirection.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboSpanDirection.Location = New Point(x, y)
+        _cboSpanDirection.Size = New Size(cw, 21)
+        _cboSpanDirection.Items.AddRange(New Object() {"Along X", "Along Y"})
+        scroll.Controls.Add(_cboSpanDirection)
+        y += 28
+
+        AddFieldLabel(scroll, "Bar Depth (in):", x, y)
+        y += 16
+        _txtBarDepth = New TextBox()
+        _txtBarDepth.Location = New Point(x, y)
+        _txtBarDepth.Size = New Size(cw, 21)
+        scroll.Controls.Add(_txtBarDepth)
+        y += 28
+
+        AddFieldLabel(scroll, "Bar Width (in):", x, y)
+        y += 16
+        _txtBarWidth = New TextBox()
+        _txtBarWidth.Location = New Point(x, y)
+        _txtBarWidth.Size = New Size(cw, 21)
+        scroll.Controls.Add(_txtBarWidth)
+        y += 28
+
+        AddFieldLabel(scroll, "Bar O.C. Spacing (in):", x, y)
+        y += 16
+        _txtOnCenterSpacing = New TextBox()
+        _txtOnCenterSpacing.Location = New Point(x, y)
+        _txtOnCenterSpacing.Size = New Size(cw, 21)
+        scroll.Controls.Add(_txtOnCenterSpacing)
+        y += 32
+
+        ' ====== Cross Bars ======
+        AddBoldLabel(scroll, "Cross Bars", x, y)
+        y += 20
+
+        AddFieldLabel(scroll, "Cross Bar Type:", x, y)
+        y += 16
+        _cboCrossBarType = New ComboBox()
+        _cboCrossBarType.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboCrossBarType.Location = New Point(x, y)
+        _cboCrossBarType.Size = New Size(cw, 21)
+        _cboCrossBarType.Items.AddRange(CrossBarTypeHelper.DisplayNames)
+        scroll.Controls.Add(_cboCrossBarType)
+        y += 28
+
+        AddFieldLabel(scroll, "Cross Bar O.C. (in):", x, y)
+        y += 16
+        _cboCrossBarOC = New ComboBox()
+        _cboCrossBarOC.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboCrossBarOC.Location = New Point(x, y)
+        _cboCrossBarOC.Size = New Size(cw, 21)
+        _cboCrossBarOC.Items.AddRange(New Object() {"2", "4"})
+        scroll.Controls.Add(_cboCrossBarOC)
+        y += 28
+
+        AddFieldLabel(scroll, "First Cross Bar Offset (in):", x, y)
+        y += 16
+        _txtFirstCrossBarOffset = New TextBox()
+        _txtFirstCrossBarOffset.Location = New Point(x, y)
+        _txtFirstCrossBarOffset.Size = New Size(cw, 21)
+        scroll.Controls.Add(_txtFirstCrossBarOffset)
+        y += 32
+
+        ' ====== Surface & Banding ======
+        AddBoldLabel(scroll, "Surface && Banding", x, y)
+        y += 20
+
+        AddFieldLabel(scroll, "Surface Profile:", x, y)
+        y += 16
+        _cboSurfaceProfile = New ComboBox()
+        _cboSurfaceProfile.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboSurfaceProfile.Location = New Point(x, y)
+        _cboSurfaceProfile.Size = New Size(cw, 21)
+        _cboSurfaceProfile.Items.AddRange(New Object() {"Plain", "Serrated"})
+        scroll.Controls.Add(_cboSurfaceProfile)
+        y += 28
+
+        AddFieldLabel(scroll, "Banding:", x, y)
+        y += 16
+        _cboBanding = New ComboBox()
+        _cboBanding.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboBanding.Location = New Point(x, y)
+        _cboBanding.Size = New Size(cw, 21)
+        _cboBanding.Items.AddRange(New Object() {"Banded", "Open Ended"})
+        scroll.Controls.Add(_cboBanding)
+        y += 32
+
+        ' ====== Output ======
+        AddBoldLabel(scroll, "Output", x, y)
+        y += 20
+
+        AddFieldLabel(scroll, "Output Folder:", x, y)
+        y += 16
+        _txtOutputFolder = New TextBox()
+        _txtOutputFolder.Location = New Point(x, y)
+        _txtOutputFolder.Size = New Size(cw - 32, 21)
+        scroll.Controls.Add(_txtOutputFolder)
+        _btnBrowseFolder = New Button()
+        _btnBrowseFolder.Text = "..."
+        _btnBrowseFolder.Location = New Point(x + cw - 28, y - 1)
+        _btnBrowseFolder.Size = New Size(28, 23)
+        AddHandler _btnBrowseFolder.Click, AddressOf OnBrowseFolderClick
+        scroll.Controls.Add(_btnBrowseFolder)
+        y += 28
+
+        AddFieldLabel(scroll, "Naming Prefix:", x, y)
+        y += 16
+        _txtNamingPrefix = New TextBox()
+        _txtNamingPrefix.Location = New Point(x, y)
+        _txtNamingPrefix.Size = New Size(cw, 21)
+        scroll.Controls.Add(_txtNamingPrefix)
+        y += 26
+
+        Dim hint As New Label()
+        hint.Text = "Leave Output Folder blank to use the active document folder."
+        hint.AutoSize = False
+        hint.MaximumSize = New Size(cw, 0)
+        hint.AutoSize = True
+        hint.Location = New Point(x, y)
+        hint.ForeColor = SystemColors.GrayText
+        scroll.Controls.Add(hint)
+        y += 36
+
+        ' --- Buttons ---
+        _btnParamOK = New Button()
+        _btnParamOK.Text = "OK"
+        _btnParamOK.Size = New Size(80, 28)
+        _btnParamOK.Location = New Point(x, y)
+        _btnParamOK.FlatStyle = FlatStyle.System
+        AddHandler _btnParamOK.Click, AddressOf OnParamOKClick
+        scroll.Controls.Add(_btnParamOK)
+
+        _btnParamCancel = New Button()
+        _btnParamCancel.Text = "Cancel"
+        _btnParamCancel.Size = New Size(80, 28)
+        _btnParamCancel.Location = New Point(x + 86, y)
+        _btnParamCancel.FlatStyle = FlatStyle.System
+        AddHandler _btnParamCancel.Click, AddressOf OnParamCancelClick
+        scroll.Controls.Add(_btnParamCancel)
+        y += 36
+
+        PopulateParamDefaults()
+
+        scroll.AutoScrollMinSize = New Size(cw + x * 2, y + 10)
+        _contentPanel.Controls.Add(scroll)
+        _contentPanel.ResumeLayout(True)
+    End Sub
+
+    Private Sub PopulateParamDefaults()
+        If _paramDefaults Is Nothing Then Return
+
+        _cboSpanDirection.SelectedIndex = If(_paramDefaults.SpanDirection = SpanDirectionType.AlongY, 1, 0)
+        _txtBarDepth.Text = _paramDefaults.BarDepth.ToString("G")
+        _txtBarWidth.Text = _paramDefaults.BarWidth.ToString("G")
+        _txtOnCenterSpacing.Text = _paramDefaults.OnCenterSpacing.ToString("G")
+        _txtOutputFolder.Text = If(_paramDefaults.OutputFolder, "")
+        _txtNamingPrefix.Text = If(_paramDefaults.NamingPrefix, "Grating")
+
+        Dim cbIdx As Integer = CInt(_paramDefaults.CrossBar)
+        If cbIdx >= 0 AndAlso cbIdx < _cboCrossBarType.Items.Count Then
+            _cboCrossBarType.SelectedIndex = cbIdx
+        Else
+            _cboCrossBarType.SelectedIndex = 0
+        End If
+
+        _cboCrossBarOC.SelectedIndex = If(Math.Abs(_paramDefaults.CrossBarOnCenter - 2.0) < 0.001, 0, 1)
+        _txtFirstCrossBarOffset.Text = _paramDefaults.FirstCrossBarOffset.ToString("G")
+        _cboSurfaceProfile.SelectedIndex = CInt(_paramDefaults.SurfaceProfile)
+        _cboBanding.SelectedIndex = CInt(_paramDefaults.Banding)
+    End Sub
+
+    ' ==================================================================
+    '  Button handlers
+    ' ==================================================================
+
+    Private Sub OnDoneClick(sender As Object, e As EventArgs)
+        _action = UserAction.Done
+        _actionTaken = True
+    End Sub
+
+    Private Sub OnCancelClick(sender As Object, e As EventArgs)
+        _action = UserAction.Cancel
+        _actionTaken = True
+    End Sub
+
+    Private Sub OnParamOKClick(sender As Object, e As EventArgs)
+        Dim barDepth As Double
+        Dim barWidth As Double
+        Dim spacing As Double
+        Dim firstOffset As Double
+
+        If Not Double.TryParse(_txtBarDepth.Text.Trim(), barDepth) Then
+            ShowParamError("Bar Depth must be a valid number.")
+            Return
+        End If
+
+        If Not Double.TryParse(_txtBarWidth.Text.Trim(), barWidth) Then
+            ShowParamError("Bar Width must be a valid number.")
+            Return
+        End If
+
+        If Not Double.TryParse(_txtOnCenterSpacing.Text.Trim(), spacing) Then
+            ShowParamError("On-Center Spacing must be a valid number.")
+            Return
+        End If
+
+        If Not Double.TryParse(_txtFirstCrossBarOffset.Text.Trim(), firstOffset) Then
+            ShowParamError("First Cross Bar Offset must be a valid number.")
+            Return
+        End If
+
+        Dim result As New GratingParameters()
+        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 1,
+                                  SpanDirectionType.AlongY,
+                                  SpanDirectionType.AlongX)
+        result.BarDepth = barDepth
+        result.BarWidth = barWidth
+        result.OnCenterSpacing = spacing
+        result.OutputFolder = _txtOutputFolder.Text.Trim()
+        result.NamingPrefix = _txtNamingPrefix.Text.Trim()
+
+        result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
+
+        Dim ocText As String = CStr(_cboCrossBarOC.SelectedItem)
+        Dim ocValue As Double
+        If Double.TryParse(ocText, ocValue) Then
+            result.CrossBarOnCenter = ocValue
+        Else
+            result.CrossBarOnCenter = 4.0
+        End If
+
+        result.FirstCrossBarOffset = firstOffset
+        result.SurfaceProfile = CType(_cboSurfaceProfile.SelectedIndex, SurfaceProfileType)
+        result.Banding = CType(_cboBanding.SelectedIndex, BandingOptionType)
+
+        Dim errors As List(Of String) = InputValidationService.Validate(result)
+        If errors.Count > 0 Then
+            ShowParamError(String.Join(vbCrLf, errors))
+            Return
+        End If
+
+        _resultParams = result
+        _action = UserAction.Done
+        _actionTaken = True
+    End Sub
+
+    Private Sub OnParamCancelClick(sender As Object, e As EventArgs)
+        _action = UserAction.Cancel
+        _actionTaken = True
+    End Sub
+
+    Private Sub OnBrowseFolderClick(sender As Object, e As EventArgs)
+        Using dlg As New FolderBrowserDialog()
+            dlg.Description = "Select output folder for grating files"
+            If Not String.IsNullOrWhiteSpace(_txtOutputFolder.Text) AndAlso
+               System.IO.Directory.Exists(_txtOutputFolder.Text) Then
+                dlg.SelectedPath = _txtOutputFolder.Text
+            End If
+            If dlg.ShowDialog() = System.Windows.Forms.DialogResult.OK Then
+                _txtOutputFolder.Text = dlg.SelectedPath
+            End If
+        End Using
+    End Sub
+
+    ' ==================================================================
+    '  Parameter input helpers
+    ' ==================================================================
+
+    Private Sub AddFieldLabel(parent As Control, text As String, x As Integer, y As Integer)
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.AutoSize = True
+        lbl.Location = New Point(x, y)
+        parent.Controls.Add(lbl)
+    End Sub
+
+    Private Sub AddBoldLabel(parent As Control, text As String, x As Integer, y As Integer,
+                             Optional fontSize As Single = 0)
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.AutoSize = True
+        lbl.Location = New Point(x, y)
+        If fontSize > 0 Then
+            lbl.Font = New Font(Me.Font.FontFamily, fontSize, FontStyle.Bold)
+        Else
+            lbl.Font = New Font(Me.Font, FontStyle.Bold)
+        End If
+        parent.Controls.Add(lbl)
+    End Sub
+
+    Private Sub ShowParamError(message As String)
+        MessageBox.Show(message,
+                        "Hand Made Grating — Input Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning)
+    End Sub
+
+End Class

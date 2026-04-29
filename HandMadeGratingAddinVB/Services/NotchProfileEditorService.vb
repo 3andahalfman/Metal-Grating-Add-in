@@ -1,0 +1,457 @@
+'////////////////////////////////////////////////////////////////////
+' Metal Bar Grating Addin - VB.NET
+'
+' NotchProfileEditorService: Opens a temporary part document with a
+' short bearing bar stub, creates a sketch on the XZ origin plane for
+' the user to draw the notch profile, and extracts the sketch entities
+' when the user clicks "I'm Done".
+'
+' Workflow:
+'   1.  Create temp .ipt with a bar stub body (2" long, full depth
+'       and width).
+'   2.  Create a sketch on the XZ origin plane.  The bar's side face
+'       at Y=0 is visible as reference.
+'   3.  Draw construction reference lines (bar top edge, notch center).
+'   4.  Activate sketch editing (sketch.Edit()).
+'   5.  Show modeless instruction form.
+'   6.  User draws lines/arcs to form the notch cut-out profile.
+'   7.  User clicks "I'm Done".
+'   8.  Extract non-construction sketch entities (lines + arcs).
+'   9.  Close the temp document.
+'  10.  Return NotchProfileData.
+'
+' The extracted profile is replayed by BearingBarPartGenerator at
+' each notch position by shifting X coordinates.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports Inventor
+
+''' <summary>
+''' Creates a temporary part with a bar stub and lets the user
+''' draw the notch profile in a sketch.
+''' </summary>
+Public Class NotchProfileEditorService
+
+    Private ReadOnly _app As Application
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Opens the notch profile editor.  Returns the captured profile
+    ''' data, or Nothing if the user cancelled or no entities were drawn.
+    ''' </summary>
+    ''' <param name="barDepth">Bearing bar depth in inches.</param>
+    ''' <param name="barWidth">Bearing bar width in inches.</param>
+    ''' <param name="notchSpec">Current notch specification (for reference dims).</param>
+    Public Function EditProfile(barDepth As Double,
+                                barWidth As Double,
+                                notchSpec As CrossBarNotchSpec) As NotchProfileData
+
+        Dim tempDoc As PartDocument = Nothing
+        Dim originalDoc As Document = Nothing
+
+        Try
+            ' Remember the original active document so we can restore it
+            Try
+                originalDoc = _app.ActiveDocument
+            Catch
+            End Try
+
+            ' Convert to cm
+            Dim depthCm As Double = barDepth * 2.54
+            Dim widthCm As Double = barWidth * 2.54
+            Dim stubLengthCm As Double = 5.08  ' 2" stub
+
+            ' --- Step 1: Create temp part document ---
+            Dim templatePath As String = GetPartTemplatePath()
+            tempDoc = CType(
+                _app.Documents.Add(DocumentTypeEnum.kPartDocumentObject,
+                                    templatePath, True),
+                PartDocument)
+
+            Dim compDef As PartComponentDefinition = tempDoc.ComponentDefinition
+            Dim tg As TransientGeometry = _app.TransientGeometry
+
+            ' --- Step 2: Build bar stub body ---
+            ' XY plane sketch → rectangle → extrude +Z by depth
+            Dim bodySketch As PlanarSketch =
+                compDef.Sketches.Add(compDef.WorkPlanes.Item(3))
+            bodySketch.SketchLines.AddAsTwoPointRectangle(
+                tg.CreatePoint2d(0, 0),
+                tg.CreatePoint2d(stubLengthCm, widthCm))
+
+            Dim bodyProfile As Profile = bodySketch.Profiles.AddForSolid()
+            Dim extDef As ExtrudeDefinition =
+                compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                    bodyProfile, PartFeatureOperationEnum.kNewBodyOperation)
+            extDef.SetDistanceExtent(
+                depthCm,
+                PartFeatureExtentDirectionEnum.kPositiveExtentDirection)
+            compDef.Features.ExtrudeFeatures.Add(extDef)
+
+            Trace.TraceInformation(
+                ": HMG NotchEditor: Bar stub created — " &
+                stubLengthCm.ToString("F2") & " x " &
+                widthCm.ToString("F2") & " x " &
+                depthCm.ToString("F2") & " cm")
+
+            ' --- Step 3: Create notch sketch on XZ origin plane ---
+            ' XZ origin plane: sketch X = world X, sketch Y = world -Z.
+            ' The bar side face at Y=0 will auto-project as reference.
+            Dim notchSketch As PlanarSketch =
+                compDef.Sketches.Add(compDef.WorkPlanes.Item(2))
+
+            ' Draw construction reference lines
+            Dim centerX As Double = stubLengthCm / 2.0
+
+            ' Bar top edge (horizontal line at Y = -depthCm)
+            Dim topRef As SketchLine = notchSketch.SketchLines.AddByTwoPoints(
+                tg.CreatePoint2d(0, -depthCm),
+                tg.CreatePoint2d(stubLengthCm, -depthCm))
+            topRef.Construction = True
+
+            ' Notch center line (vertical)
+            Dim centerRef As SketchLine = notchSketch.SketchLines.AddByTwoPoints(
+                tg.CreatePoint2d(centerX, -(depthCm + 0.5)),
+                tg.CreatePoint2d(centerX, -(depthCm - depthCm * 0.8)))
+            centerRef.Construction = True
+
+            ' Slot width guide lines (vertical, construction)
+            Dim halfSlotCm As Double = (notchSpec.SlotWidth * 2.54) / 2.0
+            Dim leftGuide As SketchLine = notchSketch.SketchLines.AddByTwoPoints(
+                tg.CreatePoint2d(centerX - halfSlotCm, -(depthCm + 0.3)),
+                tg.CreatePoint2d(centerX - halfSlotCm, -(depthCm - depthCm * 0.6)))
+            leftGuide.Construction = True
+
+            Dim rightGuide As SketchLine = notchSketch.SketchLines.AddByTwoPoints(
+                tg.CreatePoint2d(centerX + halfSlotCm, -(depthCm + 0.3)),
+                tg.CreatePoint2d(centerX + halfSlotCm, -(depthCm - depthCm * 0.6)))
+            rightGuide.Construction = True
+
+            Trace.TraceInformation(
+                ": HMG NotchEditor: Sketch created with reference lines. " &
+                "CenterX=" & centerX.ToString("F3") & " cm")
+
+            ' --- Step 4: Activate sketch editing ---
+            notchSketch.Edit()
+
+            ' Flush Inventor's pending initialization messages so the sketch
+            ' ribbon (Constrain panel, dimensions, etc.) is fully active
+            ' before the user starts drawing.
+            For i As Integer = 1 To 8
+                System.Windows.Forms.Application.DoEvents()
+                System.Threading.Thread.Sleep(30)
+            Next
+
+            ' --- Step 5: Wait for user to click "Finish Sketch" ---
+            ' No dialog — the user draws freely and clicks Inventor's
+            ' native Finish Sketch button when done.  We poll until
+            ' ActiveEditObject is no longer a PlanarSketch.
+            Do
+                System.Windows.Forms.Application.DoEvents()
+                System.Threading.Thread.Sleep(50)
+
+                Dim stillEditing As Boolean = False
+                Try
+                    Dim editObj As Object = _app.ActiveEditObject
+                    If TypeOf editObj Is PlanarSketch Then stillEditing = True
+                Catch
+                End Try
+                If Not stillEditing Then Exit Do
+            Loop
+
+            Trace.TraceInformation(": HMG NotchEditor: Sketch edit exited.")
+
+            ' --- Step 7: Extract sketch entities ---
+            Dim profileData As NotchProfileData =
+                ExtractProfile(notchSketch, centerX)
+
+            If Not profileData.IsValid Then
+                MsgBox("No usable sketch entities found." & vbCrLf & vbCrLf &
+                       "Please draw at least two connected lines and/or arcs " &
+                       "to define the notch profile.",
+                       MsgBoxStyle.Information,
+                       "Metal Bar Grating — Notch Profile")
+                Return Nothing
+            End If
+
+            Trace.TraceInformation(
+                ": HMG NotchEditor: Profile extracted — " &
+                profileData.ToString())
+
+            Return profileData
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG NotchEditor: Error — " & ex.ToString())
+            MsgBox("Notch profile editor error:" & vbCrLf & ex.Message,
+                   MsgBoxStyle.Exclamation,
+                   "Metal Bar Grating")
+            Return Nothing
+        Finally
+            ' Close temp document without saving
+            If tempDoc IsNot Nothing Then
+                Try
+                    tempDoc.Close(True)
+                Catch
+                End Try
+            End If
+
+            ' Restore original active document
+            If originalDoc IsNot Nothing Then
+                Try
+                    originalDoc.Activate()
+                Catch
+                End Try
+            End If
+        End Try
+    End Function
+
+    ' ==================================================================
+    '  Default profile generation
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Creates a default NotchProfileData from the given notch spec
+    ''' without opening a temp document or user interaction.
+    ''' For round cross bars: U-shape (top line, right wall, semicircular
+    ''' arc, left wall).  For rectangular: rectangular slot.
+    ''' All coordinates in cm, centered at SourceCenterX = 2.54 cm.
+    ''' </summary>
+    Public Shared Function CreateDefaultProfile(
+            barDepth As Double,
+            notchSpec As CrossBarNotchSpec) As NotchProfileData
+
+        Dim stubLengthCm As Double = 5.08
+        Dim centerX As Double = stubLengthCm / 2.0  ' 2.54 cm
+        Dim halfSlotCm As Double = (notchSpec.SlotWidth * 2.54) / 2.0
+        Dim topPadCm As Double = 0.01
+
+        ' Profile Y coordinates are relative to the bar's top edge:
+        '   Y = 0   → bar top
+        '   Y > 0   → into bar body (toward bar bottom)
+        '   Y < 0   → outside bar (padding above top edge)
+        ' CreateNotchSketchAndCutFromProfile maps these to actual sketch
+        ' coordinates at runtime using ModelToSketchSpace.
+        Dim topY As Double = -topPadCm            ' just outside bar top
+        Dim leftX As Double = centerX - halfSlotCm
+        Dim rightX As Double = centerX + halfSlotCm
+
+        Dim data As New NotchProfileData()
+        data.SourceCenterX = centerX
+
+        If notchSpec.IsRound Then
+            Dim straightDepthCm As Double = notchSpec.StraightDepth * 2.54
+            Dim wallBottomY As Double = straightDepthCm
+            Dim arcMidY As Double = wallBottomY + halfSlotCm
+
+            ' 1. Top line (left to right)
+            Dim topLine As New NotchSketchEntity()
+            topLine.EntityType = NotchEntityType.Line
+            topLine.StartX = leftX : topLine.StartY = topY
+            topLine.EndX = rightX : topLine.EndY = topY
+            data.Entities.Add(topLine)
+
+            ' 2. Right wall (down into bar)
+            Dim rightWall As New NotchSketchEntity()
+            rightWall.EntityType = NotchEntityType.Line
+            rightWall.StartX = rightX : rightWall.StartY = topY
+            rightWall.EndX = rightX : rightWall.EndY = wallBottomY
+            data.Entities.Add(rightWall)
+
+            ' 3. Semicircular arc (right to left via bottom midpoint)
+            Dim arc As New NotchSketchEntity()
+            arc.EntityType = NotchEntityType.ThreePointArc
+            arc.StartX = rightX : arc.StartY = wallBottomY
+            arc.MidX = centerX : arc.MidY = arcMidY
+            arc.EndX = leftX : arc.EndY = wallBottomY
+            data.Entities.Add(arc)
+
+            ' 4. Left wall (up, back to top)
+            Dim leftWall As New NotchSketchEntity()
+            leftWall.EntityType = NotchEntityType.Line
+            leftWall.StartX = leftX : leftWall.StartY = wallBottomY
+            leftWall.EndX = leftX : leftWall.EndY = topY
+            data.Entities.Add(leftWall)
+
+            data.Description = "Default round notch profile (" & notchSpec.Description & ")"
+        Else
+            Dim slotDepthCm As Double = notchSpec.SlotDepth * 2.54
+            Dim bottomY As Double = slotDepthCm
+
+            ' 1. Top line (left to right)
+            Dim topLine As New NotchSketchEntity()
+            topLine.EntityType = NotchEntityType.Line
+            topLine.StartX = leftX : topLine.StartY = topY
+            topLine.EndX = rightX : topLine.EndY = topY
+            data.Entities.Add(topLine)
+
+            ' 2. Right wall (down into bar)
+            Dim rightWall As New NotchSketchEntity()
+            rightWall.EntityType = NotchEntityType.Line
+            rightWall.StartX = rightX : rightWall.StartY = topY
+            rightWall.EndX = rightX : rightWall.EndY = bottomY
+            data.Entities.Add(rightWall)
+
+            ' 3. Bottom line (right to left)
+            Dim bottomLine As New NotchSketchEntity()
+            bottomLine.EntityType = NotchEntityType.Line
+            bottomLine.StartX = rightX : bottomLine.StartY = bottomY
+            bottomLine.EndX = leftX : bottomLine.EndY = bottomY
+            data.Entities.Add(bottomLine)
+
+            ' 4. Left wall (up, back to top)
+            Dim leftWall As New NotchSketchEntity()
+            leftWall.EntityType = NotchEntityType.Line
+            leftWall.StartX = leftX : leftWall.StartY = bottomY
+            leftWall.EndX = leftX : leftWall.EndY = topY
+            data.Entities.Add(leftWall)
+
+            data.Description = "Default rectangular notch profile (" & notchSpec.Description & ")"
+        End If
+
+        Return data
+    End Function
+
+    ' ==================================================================
+    '  Profile extraction
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Extracts non-construction lines and arcs from the sketch,
+    ''' returning them as a NotchProfileData with coordinates in cm.
+    ''' </summary>
+    Private Function ExtractProfile(sketch As PlanarSketch,
+                                     centerX As Double) As NotchProfileData
+
+        Dim data As New NotchProfileData()
+        data.SourceCenterX = centerX
+        data.Description = "User-drawn notch profile"
+
+        ' Extract lines
+        For i As Integer = 1 To sketch.SketchLines.Count
+            Dim line As SketchLine = sketch.SketchLines.Item(i)
+            If line.Construction Then Continue For
+
+            Dim entity As New NotchSketchEntity()
+            entity.EntityType = NotchEntityType.Line
+            entity.StartX = line.StartSketchPoint.Geometry.X
+            entity.StartY = line.StartSketchPoint.Geometry.Y
+            entity.EndX = line.EndSketchPoint.Geometry.X
+            entity.EndY = line.EndSketchPoint.Geometry.Y
+            data.Entities.Add(entity)
+        Next
+
+        ' Extract arcs
+        For i As Integer = 1 To sketch.SketchArcs.Count
+            Dim arc As SketchArc = sketch.SketchArcs.Item(i)
+            If arc.Construction Then Continue For
+
+            Dim entity As New NotchSketchEntity()
+            entity.EntityType = NotchEntityType.ThreePointArc
+            entity.StartX = arc.StartSketchPoint.Geometry.X
+            entity.StartY = arc.StartSketchPoint.Geometry.Y
+            entity.EndX = arc.EndSketchPoint.Geometry.X
+            entity.EndY = arc.EndSketchPoint.Geometry.Y
+
+            ' Compute arc midpoint for AddByThreePoints replay
+            Dim midPt As Point2d = ComputeArcMidpoint(arc)
+            entity.MidX = midPt.X
+            entity.MidY = midPt.Y
+
+            data.Entities.Add(entity)
+        Next
+
+        Trace.TraceInformation(
+            ": HMG NotchEditor: Extracted " & data.Entities.Count &
+            " entities (" &
+            data.Entities.FindAll(Function(e) e.EntityType = NotchEntityType.Line).Count &
+            " lines, " &
+            data.Entities.FindAll(Function(e) e.EntityType = NotchEntityType.ThreePointArc).Count &
+            " arcs)")
+
+        Return data
+    End Function
+
+    ''' <summary>
+    ''' Computes the midpoint of a sketch arc for three-point replay.
+    ''' Uses Arc2d.StartAngle + Arc2d.SweepAngle (signed: positive=CCW,
+    ''' negative=CW) so the midpoint is always on the correct side of
+    ''' the arc regardless of which direction the user drew it.
+    ''' </summary>
+    Private Function ComputeArcMidpoint(arc As SketchArc) As Point2d
+        Dim tg As TransientGeometry = _app.TransientGeometry
+
+        Try
+            ' Arc2d.SweepAngle carries the sign of the arc direction:
+            '   positive = CCW,  negative = CW
+            ' This is the only reliable way to get the correct midpoint
+            ' for both drawing directions without guessing.
+            Dim arcGeom As Object = arc.Geometry  ' returns Arc2d
+            Dim cx As Double = arcGeom.Center.X
+            Dim cy As Double = arcGeom.Center.Y
+            Dim r As Double = arcGeom.Radius
+            Dim startAng As Double = arcGeom.StartAngle   ' radians from +X axis
+            Dim sweepAng As Double = arcGeom.SweepAngle   ' signed radians
+
+            Dim midAng As Double = startAng + sweepAng / 2.0
+            Return tg.CreatePoint2d(
+                cx + r * Math.Cos(midAng),
+                cy + r * Math.Sin(midAng))
+
+        Catch
+            ' Fallback: midpoint of the chord (loses arc shape but won't crash)
+            Dim sx As Double = arc.StartSketchPoint.Geometry.X
+            Dim sy As Double = arc.StartSketchPoint.Geometry.Y
+            Dim ex As Double = arc.EndSketchPoint.Geometry.X
+            Dim ey As Double = arc.EndSketchPoint.Geometry.Y
+            Return tg.CreatePoint2d((sx + ex) / 2.0, (sy + ey) / 2.0)
+        End Try
+    End Function
+
+    ' ==================================================================
+    '  Template helper (same strategy as BearingBarPartGenerator)
+    ' ==================================================================
+
+    Private Function GetPartTemplatePath() As String
+        Try
+            Dim p As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kPartDocumentObject,
+                SystemOfMeasureEnum.kEnglishSystemOfMeasure)
+            If Not String.IsNullOrEmpty(p) AndAlso IO.File.Exists(p) Then
+                Return p
+            End If
+        Catch
+        End Try
+
+        Try
+            Dim p As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kPartDocumentObject,
+                SystemOfMeasureEnum.kMetricSystemOfMeasure)
+            If Not String.IsNullOrEmpty(p) AndAlso IO.File.Exists(p) Then
+                Return p
+            End If
+        Catch
+        End Try
+
+        Try
+            Dim templateDir As String =
+                _app.DesignProjectManager.ActiveDesignProject.TemplateDir
+            If Not String.IsNullOrEmpty(templateDir) AndAlso
+               IO.Directory.Exists(templateDir) Then
+                For Each candidate As String In {"Standard (in).ipt", "Standard.ipt"}
+                    Dim full As String = IO.Path.Combine(templateDir, candidate)
+                    If IO.File.Exists(full) Then Return full
+                Next
+                Dim any() As String = IO.Directory.GetFiles(templateDir, "*.ipt")
+                If any.Length > 0 Then Return any(0)
+            End If
+        Catch
+        End Try
+
+        Return ""
+    End Function
+
+End Class

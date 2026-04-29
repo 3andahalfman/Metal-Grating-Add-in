@@ -1,0 +1,114 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' PerimeterExtractor: Extracts perimeter geometry data from a
+' validated Inventor sketch profile path into the internal
+' PerimeterData model.
+'
+' Uses late-bound property access (Option Strict Off) for robust
+' COM interop with varying sketch entity types.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports Inventor
+
+''' <summary>
+''' Extracts vertex data from a validated outer profile path.
+''' </summary>
+Public Class PerimeterExtractor
+
+    ''' <summary>
+    ''' Extracts perimeter data from a pre-validated outer profile path.
+    ''' </summary>
+    ''' <param name="sketch">Source sketch (for metadata).</param>
+    ''' <param name="outerPath">The outer boundary ProfilePath.</param>
+    ''' <returns>PerimeterData, or Nothing if extraction fails.</returns>
+    Public Function ExtractFromPath(sketch As PlanarSketch,
+                                    outerPath As ProfilePath) As PerimeterData
+        Try
+            Dim vertices As List(Of Double()) = ExtractVertices(outerPath)
+            Dim edgeCount As Integer = SafePathCount(outerPath)
+
+            Dim data As New PerimeterData()
+            data.SketchName = sketch.Name
+            data.EdgeCount = edgeCount
+            data.OuterLoopVertices = vertices
+            data.SourceSketch = sketch
+
+            Trace.TraceInformation(": HMG Extractor: Extracted " &
+                edgeCount & " edges, " & vertices.Count & " vertices.")
+
+            Return data
+        Catch ex As Exception
+            Trace.TraceError(": HMG Extractor: Extraction failed: " &
+                             ex.Message)
+            Return Nothing
+        End Try
+    End Function
+
+#Region "Vertex extraction"
+
+    ''' <summary>
+    ''' Walks each ProfileEntity in the path and extracts vertex coordinates.
+    ''' </summary>
+    Private Function ExtractVertices(outerPath As ProfilePath) As List(Of Double())
+        Dim vertices As New List(Of Double())
+
+        Try
+            For i As Integer = 1 To outerPath.Count
+                Dim entity As ProfileEntity = outerPath.Item(i)
+                ExtractEntityVertex(entity, vertices)
+            Next
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG Extractor: Vertex walk partial: " &
+                               ex.Message)
+        End Try
+
+        Return vertices
+    End Function
+
+    ''' <summary>
+    ''' Extracts the start-point vertex from a single profile entity.
+    ''' Uses late binding to handle SketchLine, SketchArc, SketchCircle, etc.
+    ''' </summary>
+    Private Sub ExtractEntityVertex(entity As ProfileEntity,
+                                    vertices As List(Of Double()))
+        ' Try StartSketchPoint (lines, arcs, splines)
+        Try
+            Dim sketchEnt As Object = entity.SketchEntity
+            Dim startPt As Object = sketchEnt.StartSketchPoint
+            Dim geom As Object = startPt.Geometry
+            vertices.Add(New Double() {CDbl(geom.X), CDbl(geom.Y)})
+            Return
+        Catch
+        End Try
+
+        ' Fallback: CenterSketchPoint (full circles, ellipses)
+        Try
+            Dim sketchEnt As Object = entity.SketchEntity
+            Dim centerPt As Object = sketchEnt.CenterSketchPoint
+            Dim geom As Object = centerPt.Geometry
+            vertices.Add(New Double() {CDbl(geom.X), CDbl(geom.Y)})
+            Return
+        Catch
+        End Try
+
+        Trace.TraceWarning(": HMG Extractor: Could not extract vertex " &
+                           "from entity at index — skipped.")
+    End Sub
+
+#End Region
+
+#Region "Helpers"
+
+    Private Shared Function SafePathCount(path As ProfilePath) As Integer
+        Try
+            Return path.Count
+        Catch
+            Return 0
+        End Try
+    End Function
+
+#End Region
+
+End Class

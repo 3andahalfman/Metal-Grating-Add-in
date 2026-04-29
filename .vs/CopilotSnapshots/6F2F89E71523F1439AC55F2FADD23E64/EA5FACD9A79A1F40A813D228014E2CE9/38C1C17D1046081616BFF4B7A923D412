@@ -1,0 +1,85 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' CrossBarNotchSpec: Defines the notch slot dimensions for a given
+' cross bar type.  Used by BearingBarNotchService to compute notch
+' positions and build the laser-cut side profile of each bearing bar.
+'
+' Slot width  = cross bar through-dimension (diameter or thickness).
+' Slot depth  = distance from top edge of the bar (default: half
+'               the bearing bar depth — standard for HMG laser-cut bars).
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Notch geometry specification derived from the selected cross bar type.
+''' All dimensions in inches.
+''' </summary>
+Public Class CrossBarNotchSpec
+
+    ''' <summary>Notch slot width along the bar length (inches).</summary>
+    Public Property SlotWidth As Double
+
+    ''' <summary>Notch depth from the top edge of the bar (inches).</summary>
+    Public Property SlotDepth As Double
+
+    ''' <summary>True for round cross bars (reserved for future profile refinement).</summary>
+    Public Property IsRound As Boolean
+
+    ''' <summary>Human-readable description of the notch type.</summary>
+    Public Property Description As String
+
+    ''' <summary>
+    ''' Derives notch dimensions from the grating parameters.
+    ''' Slot width matches the cross bar's through-dimension.
+    ''' Slot depth defaults to half the bearing bar depth.
+    ''' </summary>
+    Public Shared Function FromParameters(params As GratingParameters) As CrossBarNotchSpec
+        Dim spec As New CrossBarNotchSpec()
+        spec.SlotDepth = params.BarDepth / 2.0
+
+        Select Case params.CrossBar
+            Case CrossBarType.Round_3_8
+                spec.SlotWidth = 0.375
+                spec.IsRound = True
+                spec.Description = "3/8"" round rod slot"
+
+            Case CrossBarType.Round_1_2
+                spec.SlotWidth = 0.5
+                spec.IsRound = True
+                spec.Description = "1/2"" round rod slot"
+
+            Case CrossBarType.Flat_1_4_x_1
+                spec.SlotWidth = 0.25
+                spec.IsRound = False
+                spec.Description = "1/4"" x 1"" flat bar slot"
+
+            Case CrossBarType.Flat_1_4_x_1_1_4
+                spec.SlotWidth = 0.25
+                spec.IsRound = False
+                spec.Description = "1/4"" x 1-1/4"" flat bar slot"
+
+            Case CrossBarType.Flat_3_8_x_1
+                spec.SlotWidth = 0.375
+                spec.IsRound = False
+                spec.Description = "3/8"" x 1"" flat bar slot"
+
+            Case CrossBarType.Flat_3_8_x_1_1_4
+                spec.SlotWidth = 0.375
+                spec.IsRound = False
+                spec.Description = "3/8"" x 1-1/4"" flat bar slot"
+
+            Case Else
+                spec.SlotWidth = 0.375
+                spec.IsRound = False
+                spec.Description = "Default slot (unknown cross bar type)"
+        End Select
+
+        Return spec
+    End Function
+
+    Public Overrides Function ToString() As String
+        Return Description & " — W=" & SlotWidth.ToString("F4") &
+               """ D=" & SlotDepth.ToString("F4") & """"
+    End Function
+
+End Class

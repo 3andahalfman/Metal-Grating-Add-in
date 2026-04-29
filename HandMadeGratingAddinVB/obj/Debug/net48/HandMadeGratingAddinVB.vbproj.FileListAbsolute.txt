@@ -1,0 +1,11 @@
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\bin\Debug\net48\HandMadeGratingAddinVB.Inventor.addin
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\bin\Debug\net48\HandMadeGratingAddinVB.dll
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\bin\Debug\net48\HandMadeGratingAddinVB.pdb
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\obj\Debug\net48\HandMadeGratingAddinVB.vbproj.AssemblyReference.cache
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\obj\Debug\net48\HandMadeGratingAddinVB.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\obj\Debug\net48\HandMadeGratingAddinVB.vbproj.CoreCompileInputs.cache
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\obj\Debug\net48\HandMadeGratingAddinVB.dll
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\obj\Debug\net48\HandMadeGratingAddinVB.pdb
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\bin\Debug\net48\Resources\GratingIcon16.png
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\bin\Debug\net48\Resources\GratingIcon32.png
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\bin\Debug\net48\Resources\GP INC STANDARD.idw

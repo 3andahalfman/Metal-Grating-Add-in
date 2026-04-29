@@ -1,0 +1,203 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingParameters: Full parameter model for hand made grating
+' generation. Combines V1 bearing bar settings with V2 cross bar,
+' surface profile, and banding options.
+'
+' Units: all dimensions are in inches.
+'////////////////////////////////////////////////////////////////////
+
+' ===================================================================
+'  Enumerations
+' ===================================================================
+
+''' <summary>
+''' Direction the bearing bars span across the grating perimeter.
+''' </summary>
+Public Enum SpanDirectionType
+    ''' <summary>Bearing bars run parallel to the sketch X axis.</summary>
+    AlongX = 0
+    ''' <summary>Bearing bars run parallel to the sketch Y axis.</summary>
+    AlongY = 1
+End Enum
+
+''' <summary>
+''' Cross bar shape and size. Each member maps to a specific
+''' bar profile from the HMG specification.
+''' </summary>
+Public Enum CrossBarType
+    ''' <summary>3/8" diameter round rod.</summary>
+    Round_3_8 = 0
+    ''' <summary>1/2" diameter round rod.</summary>
+    Round_1_2 = 1
+    ''' <summary>1/4" x 1" rectangular flat bar.</summary>
+    Flat_1_4_x_1 = 2
+    ''' <summary>1/4" x 1-1/4" rectangular flat bar.</summary>
+    Flat_1_4_x_1_1_4 = 3
+    ''' <summary>3/8" x 1" rectangular flat bar.</summary>
+    Flat_3_8_x_1 = 4
+    ''' <summary>3/8" x 1-1/4" rectangular flat bar.</summary>
+    Flat_3_8_x_1_1_4 = 5
+    ''' <summary>1/4" diameter round rod.</summary>
+    Round_1_4 = 6
+End Enum
+
+''' <summary>
+''' Surface treatment for the cross bars.
+''' </summary>
+Public Enum SurfaceProfileType
+    ''' <summary>Smooth / plain surface.</summary>
+    Plain = 0
+    ''' <summary>Serrated surface for slip resistance.</summary>
+    Serrated = 1
+End Enum
+
+''' <summary>
+''' Whether the grating has band bars around the perimeter.
+''' </summary>
+Public Enum BandingOptionType
+    ''' <summary>Band bars follow the perimeter edge.</summary>
+    Banded = 0
+    ''' <summary>No band bars — bearing bars have open ends.</summary>
+    OpenEnded = 1
+End Enum
+
+' ===================================================================
+'  Helper: display-name lookups for enums
+' ===================================================================
+
+''' <summary>
+''' Provides human-readable display names for cross bar types.
+''' </summary>
+Public Class CrossBarTypeHelper
+
+    ''' <summary>Ordered display names matching CrossBarType values.</summary>
+    Public Shared ReadOnly DisplayNames() As String = {
+        "3/8"" dia. Round",
+        "1/2"" dia. Round",
+        "1/4"" x 1"" Flat Bar",
+        "1/4"" x 1-1/4"" Flat Bar",
+        "3/8"" x 1"" Flat Bar",
+        "3/8"" x 1-1/4"" Flat Bar",
+        "1/4"" dia. Round"
+    }
+
+    ''' <summary>Returns the display name for a CrossBarType value.</summary>
+    Public Shared Function GetDisplayName(t As CrossBarType) As String
+        Dim idx As Integer = CInt(t)
+        If idx >= 0 AndAlso idx < DisplayNames.Length Then
+            Return DisplayNames(idx)
+        End If
+        Return t.ToString()
+    End Function
+
+End Class
+
+' ===================================================================
+'  Parameter model
+' ===================================================================
+
+''' <summary>
+''' Stores all grating input parameters (V1 bearing bar + V2 cross bar,
+''' surface profile, and banding options).
+''' </summary>
+Public Class GratingParameters
+
+    ' --- V1: Bearing bar settings ---
+
+    ''' <summary>Direction the bearing bars span.</summary>
+    Public Property SpanDirection As SpanDirectionType
+
+    ''' <summary>Bearing bar depth (height of the bar cross-section) in inches.</summary>
+    Public Property BarDepth As Double
+
+    ''' <summary>Bearing bar width (thickness of the bar cross-section) in inches.</summary>
+    Public Property BarWidth As Double
+
+    ''' <summary>On-center spacing between bearing bars in inches.</summary>
+    Public Property OnCenterSpacing As Double
+
+    ''' <summary>
+    ''' Output folder path for generated files.
+    ''' Empty string means use the active document's folder.
+    ''' </summary>
+    Public Property OutputFolder As String
+
+    ''' <summary>Optional naming prefix for output files.</summary>
+    Public Property NamingPrefix As String
+
+    ' --- V2: Cross bar settings ---
+
+    ''' <summary>Cross bar shape and size.</summary>
+    Public Property CrossBar As CrossBarType
+
+    ''' <summary>Cross bar on-center spacing in inches (typically 2 or 4).</summary>
+    Public Property CrossBarOnCenter As Double
+
+    ''' <summary>
+    ''' Distance from the bearing bar end to the first cross bar
+    ''' center in inches. Must be positive.
+    ''' </summary>
+    Public Property FirstCrossBarOffset As Double
+
+    ' --- V2: Surface and banding ---
+
+    ''' <summary>Surface treatment (plain or serrated).</summary>
+    Public Property SurfaceProfile As SurfaceProfileType
+
+    ''' <summary>Whether the grating is banded or open-ended.</summary>
+    Public Property Banding As BandingOptionType
+
+    ' --- V3: Notch dimension overrides (optional, Nothing = use default) ---
+
+    ''' <summary>Override for notch slot width in inches. Nothing = use cross bar default.</summary>
+    Public Property NotchSlotWidthOverride As Double?
+
+    ''' <summary>Override for total notch slot depth in inches. Nothing = use cross bar default.</summary>
+    Public Property NotchSlotDepthOverride As Double?
+
+    ''' <summary>Override for straight wall depth before arc (round only) in inches. Nothing = use default.</summary>
+    Public Property NotchStraightDepthOverride As Double?
+
+    ''' <summary>Override for bottom radius (round only) in inches. Nothing = use default.</summary>
+    Public Property NotchBottomRadiusOverride As Double?
+
+    ' --- V3: Serration dimension overrides (optional, Nothing = use default) ---
+
+    ''' <summary>Override for serration scallop chord width in inches. Nothing = use default.</summary>
+    Public Property SerrationChordOverride As Double?
+
+    ''' <summary>Override for flat land width between scallops in inches. Nothing = use default.</summary>
+    Public Property SerrationFlatWidthOverride As Double?
+
+    ''' <summary>Override for serration scallop arc radius in inches. Nothing = use default.</summary>
+    Public Property SerrationArcRadiusOverride As Double?
+
+    ''' <summary>Override for clearance from notch slot edge to nearest scallop in inches. Nothing = use default.</summary>
+    Public Property SerrationMarginOverride As Double?
+
+    ' --- Factory ---
+
+    ''' <summary>
+    ''' Creates default parameters matching common grating:
+    '''   2" deep x 3/16" wide bars at 1-3/16" on-center,
+    '''   3/8" round cross bars at 2" O.C., plain, banded.
+    ''' </summary>
+    Public Shared Function CreateDefaults() As GratingParameters
+        Return New GratingParameters With {
+            .SpanDirection = SpanDirectionType.AlongX,
+            .BarDepth = 2.0,
+            .BarWidth = 0.1875,
+            .OnCenterSpacing = 1.1875,
+            .OutputFolder = "",
+            .NamingPrefix = "Grating",
+            .CrossBar = CrossBarType.Round_3_8,
+            .CrossBarOnCenter = 2.0,
+            .FirstCrossBarOffset = 1.0,
+            .SurfaceProfile = SurfaceProfileType.Plain,
+            .Banding = BandingOptionType.Banded
+        }
+    End Function
+
+End Class

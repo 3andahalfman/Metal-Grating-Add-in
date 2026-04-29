@@ -1,0 +1,456 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingInputForm: Code-only WinForms dialog for collecting all
+' grating generation parameters (V1 bearing bar + V2 cross bar,
+' surface profile, and banding options).
+'
+' V1: span direction, bar depth, bar width, on-center spacing,
+'     output folder, naming prefix.
+' V2: cross bar type/size, cross bar O.C., first cross bar offset,
+'     surface profile, banding option.
+'
+' Validates all inputs via InputValidationService before accepting.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.Drawing
+Imports System.Windows.Forms
+
+''' <summary>
+''' Modal dialog that collects all grating parameters from the user.
+''' </summary>
+Public Class GratingInputForm
+    Inherits Form
+
+    ' --- V1 Controls ---
+    Private _cboSpanDirection As ComboBox
+    Private _txtBarDepth As TextBox
+    Private _txtBarWidth As TextBox
+    Private _txtOnCenterSpacing As TextBox
+    Private _txtOutputFolder As TextBox
+    Private _btnBrowseFolder As Button
+    Private _txtNamingPrefix As TextBox
+
+    ' --- V2 Controls ---
+    Private _cboCrossBarType As ComboBox
+    Private _cboCrossBarOC As ComboBox
+    Private _txtFirstCrossBarOffset As TextBox
+    Private _cboSurfaceProfile As ComboBox
+    Private _cboBanding As ComboBox
+    Private _btnEditNotchProfile As Button
+
+    ' --- Buttons ---
+    Private _btnOK As Button
+
+    ' --- Notch profile editing state ---
+    Private _wantsNotchEdit As Boolean = False
+
+    ''' <summary>
+    ''' The validated parameters. Only meaningful when DialogResult is OK.
+    ''' </summary>
+    Public Property Parameters As GratingParameters
+
+    ''' <summary>
+    ''' The current notch profile data (passed in and/or edited).
+    ''' </summary>
+    Public Property NotchProfile As NotchProfileData
+
+    ''' <summary>
+    ''' True if the user clicked "Edit Notch Profile" instead of OK/Cancel.
+    ''' </summary>
+    Public ReadOnly Property WantsNotchEdit As Boolean
+        Get
+            Return _wantsNotchEdit
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Returns the current parameter values from the form fields
+    ''' (best-effort parse, no validation errors).
+    ''' Used when re-opening the form after notch profile editing.
+    ''' </summary>
+    Public ReadOnly Property CurrentParameters As GratingParameters
+        Get
+            Return BuildCurrentParameters()
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Creates the form and populates controls with supplied defaults.
+    ''' </summary>
+    Public Sub New(defaults As GratingParameters,
+                   Optional existingProfile As NotchProfileData = Nothing)
+        Parameters = defaults
+        NotchProfile = existingProfile
+        InitializeControls()
+        PopulateDefaults(defaults)
+    End Sub
+
+    ' ==================================================================
+    '  Control layout (code-only, no designer)
+    ' ==================================================================
+
+    Private Sub InitializeControls()
+        ' --- Form ---
+        Me.Text = "Hand Made Grating — Parameters"
+        Me.FormBorderStyle = FormBorderStyle.FixedDialog
+        Me.MaximizeBox = False
+        Me.MinimizeBox = False
+        Me.StartPosition = FormStartPosition.CenterParent
+        Me.ShowInTaskbar = False
+
+        Dim yPos As Integer = 14
+        Dim labelX As Integer = 14
+        Dim controlX As Integer = 190
+        Dim controlWidth As Integer = 230
+        Dim rowHeight As Integer = 30
+
+        ' ==============================================================
+        '  V1 — Bearing bar section
+        ' ==============================================================
+
+        yPos = AddSectionHeader("Bearing Bars", labelX, yPos)
+
+        ' --- Span direction ---
+        AddLabel("Span Direction:", labelX, yPos + 3)
+        _cboSpanDirection = New ComboBox()
+        _cboSpanDirection.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboSpanDirection.Location = New Point(controlX, yPos)
+        _cboSpanDirection.Size = New Size(controlWidth, 21)
+        _cboSpanDirection.Items.AddRange(New Object() {"Along X", "Along Y"})
+        Me.Controls.Add(_cboSpanDirection)
+        yPos += rowHeight
+
+        ' --- Bar depth ---
+        AddLabel("Bar Depth (in):", labelX, yPos + 3)
+        _txtBarDepth = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight
+
+        ' --- Bar width ---
+        AddLabel("Bar Width (in):", labelX, yPos + 3)
+        _txtBarWidth = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight
+
+        ' --- On-center spacing ---
+        AddLabel("Bar O.C. Spacing (in):", labelX, yPos + 3)
+        _txtOnCenterSpacing = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight + 8
+
+        ' ==============================================================
+        '  V2 — Cross bar section
+        ' ==============================================================
+
+        yPos = AddSectionHeader("Cross Bars", labelX, yPos)
+
+        ' --- Cross bar type ---
+        AddLabel("Cross Bar Type:", labelX, yPos + 3)
+        _cboCrossBarType = New ComboBox()
+        _cboCrossBarType.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboCrossBarType.Location = New Point(controlX, yPos)
+        _cboCrossBarType.Size = New Size(controlWidth, 21)
+        _cboCrossBarType.Items.AddRange(CrossBarTypeHelper.DisplayNames)
+        Me.Controls.Add(_cboCrossBarType)
+        yPos += rowHeight
+
+        ' --- Cross bar O.C. spacing ---
+        AddLabel("Cross Bar O.C. (in):", labelX, yPos + 3)
+        _cboCrossBarOC = New ComboBox()
+        _cboCrossBarOC.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboCrossBarOC.Location = New Point(controlX, yPos)
+        _cboCrossBarOC.Size = New Size(controlWidth, 21)
+        _cboCrossBarOC.Items.AddRange(New Object() {"2", "4"})
+        Me.Controls.Add(_cboCrossBarOC)
+        yPos += rowHeight
+
+        ' --- First cross bar offset ---
+        AddLabel("First Cross Bar Offset (in):", labelX, yPos + 3)
+        _txtFirstCrossBarOffset = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight
+
+        ' --- Edit notch profile button ---
+        _btnEditNotchProfile = New Button()
+        If NotchProfile IsNot Nothing AndAlso NotchProfile.IsValid Then
+            _btnEditNotchProfile.Text = "Edit Notch Profile  " & ChrW(&H2713)
+        Else
+            _btnEditNotchProfile.Text = "Edit Notch Profile..."
+        End If
+        _btnEditNotchProfile.Location = New Point(controlX, yPos)
+        _btnEditNotchProfile.Size = New Size(controlWidth, 28)
+        AddHandler _btnEditNotchProfile.Click, AddressOf OnEditNotchProfile
+        Me.Controls.Add(_btnEditNotchProfile)
+        yPos += 36 + 8
+
+        ' ==============================================================
+        '  V2 — Surface & banding section
+        ' ==============================================================
+
+        yPos = AddSectionHeader("Surface && Banding", labelX, yPos)
+
+        ' --- Surface profile ---
+        AddLabel("Surface Profile:", labelX, yPos + 3)
+        _cboSurfaceProfile = New ComboBox()
+        _cboSurfaceProfile.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboSurfaceProfile.Location = New Point(controlX, yPos)
+        _cboSurfaceProfile.Size = New Size(controlWidth, 21)
+        _cboSurfaceProfile.Items.AddRange(New Object() {"Plain", "Serrated"})
+        Me.Controls.Add(_cboSurfaceProfile)
+        yPos += rowHeight
+
+        ' --- Banding ---
+        AddLabel("Banding:", labelX, yPos + 3)
+        _cboBanding = New ComboBox()
+        _cboBanding.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboBanding.Location = New Point(controlX, yPos)
+        _cboBanding.Size = New Size(controlWidth, 21)
+        _cboBanding.Items.AddRange(New Object() {"Banded", "Open Ended"})
+        Me.Controls.Add(_cboBanding)
+        yPos += rowHeight + 8
+
+        ' ==============================================================
+        '  Output section
+        ' ==============================================================
+
+        yPos = AddSectionHeader("Output", labelX, yPos)
+
+        ' --- Output folder ---
+        AddLabel("Output Folder:", labelX, yPos + 3)
+        _txtOutputFolder = New TextBox()
+        _txtOutputFolder.Location = New Point(controlX, yPos)
+        _txtOutputFolder.Size = New Size(controlWidth - 36, 21)
+        Me.Controls.Add(_txtOutputFolder)
+
+        _btnBrowseFolder = New Button()
+        _btnBrowseFolder.Text = "..."
+        _btnBrowseFolder.Location = New Point(controlX + controlWidth - 32, yPos - 1)
+        _btnBrowseFolder.Size = New Size(32, 23)
+        AddHandler _btnBrowseFolder.Click, AddressOf OnBrowseFolder
+        Me.Controls.Add(_btnBrowseFolder)
+        yPos += rowHeight
+
+        ' --- Naming prefix ---
+        AddLabel("Naming Prefix:", labelX, yPos + 3)
+        _txtNamingPrefix = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight + 4
+
+        ' --- Hint label ---
+        Dim hint As New Label()
+        hint.Text = "Leave Output Folder blank to use the active document folder."
+        hint.Location = New Point(labelX, yPos)
+        hint.AutoSize = True
+        hint.ForeColor = SystemColors.GrayText
+        Me.Controls.Add(hint)
+        yPos += 24
+
+        ' ==============================================================
+        '  Create Grating button (right-aligned, no Cancel)
+        ' ==============================================================
+
+        Dim formWidth As Integer = controlX + controlWidth + 16
+
+        _btnOK = New Button()
+        _btnOK.Text = "Create Grating"
+        _btnOK.Size = New Size(120, 28)
+        _btnOK.Location = New Point(formWidth - 124, yPos)
+        AddHandler _btnOK.Click, AddressOf OnOKClick
+        Me.Controls.Add(_btnOK)
+
+        Me.AcceptButton = _btnOK
+
+        ' Size the form to fit all controls
+        Me.ClientSize = New Size(formWidth, yPos + 40)
+    End Sub
+
+    Private Sub PopulateDefaults(defaults As GratingParameters)
+        ' V1
+        _cboSpanDirection.SelectedIndex = If(defaults.SpanDirection = SpanDirectionType.AlongY, 1, 0)
+        _txtBarDepth.Text = defaults.BarDepth.ToString("G")
+        _txtBarWidth.Text = defaults.BarWidth.ToString("G")
+        _txtOnCenterSpacing.Text = defaults.OnCenterSpacing.ToString("G")
+        _txtOutputFolder.Text = If(defaults.OutputFolder, "")
+        _txtNamingPrefix.Text = If(defaults.NamingPrefix, "Grating")
+
+        ' V2 — cross bar
+        Dim cbIdx As Integer = CInt(defaults.CrossBar)
+        If cbIdx >= 0 AndAlso cbIdx < _cboCrossBarType.Items.Count Then
+            _cboCrossBarType.SelectedIndex = cbIdx
+        Else
+            _cboCrossBarType.SelectedIndex = 0
+        End If
+
+        ' Cross bar OC: "2" is index 0, "4" is index 1
+        _cboCrossBarOC.SelectedIndex = If(Math.Abs(defaults.CrossBarOnCenter - 2.0) < 0.001, 0, 1)
+
+        _txtFirstCrossBarOffset.Text = defaults.FirstCrossBarOffset.ToString("G")
+
+        ' V2 — surface & banding
+        _cboSurfaceProfile.SelectedIndex = CInt(defaults.SurfaceProfile)
+        _cboBanding.SelectedIndex = CInt(defaults.Banding)
+    End Sub
+
+    ' ==================================================================
+    '  Event handlers
+    ' ==================================================================
+
+    Private Sub OnBrowseFolder(sender As Object, e As EventArgs)
+        Using dlg As New FolderBrowserDialog()
+            dlg.Description = "Select output folder for grating files"
+            If Not String.IsNullOrWhiteSpace(_txtOutputFolder.Text) AndAlso
+               System.IO.Directory.Exists(_txtOutputFolder.Text) Then
+                dlg.SelectedPath = _txtOutputFolder.Text
+            End If
+            If dlg.ShowDialog(Me) = System.Windows.Forms.DialogResult.OK Then
+                _txtOutputFolder.Text = dlg.SelectedPath
+            End If
+        End Using
+    End Sub
+
+    Private Sub OnOKClick(sender As Object, e As EventArgs)
+        ' ==============================================================
+        '  Parse V1 numeric fields
+        ' ==============================================================
+
+        Dim barDepth As Double
+        Dim barWidth As Double
+        Dim spacing As Double
+
+        If Not Double.TryParse(_txtBarDepth.Text.Trim(), barDepth) Then
+            ShowError("Bar Depth must be a valid number.")
+            _txtBarDepth.Focus()
+            Return
+        End If
+
+        If Not Double.TryParse(_txtBarWidth.Text.Trim(), barWidth) Then
+            ShowError("Bar Width must be a valid number.")
+            _txtBarWidth.Focus()
+            Return
+        End If
+
+        If Not Double.TryParse(_txtOnCenterSpacing.Text.Trim(), spacing) Then
+            ShowError("On-Center Spacing must be a valid number.")
+            _txtOnCenterSpacing.Focus()
+            Return
+        End If
+
+        ' ==============================================================
+        '  Parse V2 numeric fields
+        ' ==============================================================
+
+        Dim firstOffset As Double
+        If Not Double.TryParse(_txtFirstCrossBarOffset.Text.Trim(), firstOffset) Then
+            ShowError("First Cross Bar Offset must be a valid number.")
+            _txtFirstCrossBarOffset.Focus()
+            Return
+        End If
+
+        ' ==============================================================
+        '  Build parameter object
+        ' ==============================================================
+
+        Dim result As New GratingParameters()
+
+        ' V1
+        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 1,
+                                  SpanDirectionType.AlongY,
+                                  SpanDirectionType.AlongX)
+        result.BarDepth = barDepth
+        result.BarWidth = barWidth
+        result.OnCenterSpacing = spacing
+        result.OutputFolder = _txtOutputFolder.Text.Trim()
+        result.NamingPrefix = _txtNamingPrefix.Text.Trim()
+
+        ' V2 — cross bar
+        result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
+
+        ' Parse the dropdown text to get the OC value
+        Dim ocText As String = CStr(_cboCrossBarOC.SelectedItem)
+        Dim ocValue As Double
+        If Double.TryParse(ocText, ocValue) Then
+            result.CrossBarOnCenter = ocValue
+        Else
+            result.CrossBarOnCenter = 4.0
+        End If
+
+        result.FirstCrossBarOffset = firstOffset
+
+        ' V2 — surface & banding
+        result.SurfaceProfile = CType(_cboSurfaceProfile.SelectedIndex, SurfaceProfileType)
+        result.Banding = CType(_cboBanding.SelectedIndex, BandingOptionType)
+
+        ' ==============================================================
+        '  Validate
+        ' ==============================================================
+
+        Dim errors As List(Of String) = InputValidationService.Validate(result)
+
+        If errors.Count > 0 Then
+            ShowError(String.Join(vbCrLf, errors))
+            Return
+        End If
+
+        ' ==============================================================
+        '  Accept
+        ' ==============================================================
+
+        Trace.TraceInformation(": HMG: Parameters accepted — " &
+            "Direction=" & result.SpanDirection.ToString() &
+            ", Depth=" & result.BarDepth &
+            ", Width=" & result.BarWidth &
+            ", BarOC=" & result.OnCenterSpacing &
+            ", CrossBar=" & CrossBarTypeHelper.GetDisplayName(result.CrossBar) &
+            ", CrossBarOC=" & result.CrossBarOnCenter &
+            ", 1stOffset=" & result.FirstCrossBarOffset &
+            ", Surface=" & result.SurfaceProfile.ToString() &
+            ", Banding=" & result.Banding.ToString() &
+            ", Folder=""" & result.OutputFolder & """" &
+            ", Prefix=""" & result.NamingPrefix & """")
+
+        Parameters = result
+        Me.DialogResult = System.Windows.Forms.DialogResult.OK
+        Me.Close()
+    End Sub
+
+    ' ==================================================================
+    '  Helpers
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Adds a bold section header label with an underline separator.
+    ''' Returns the updated yPos below the header.
+    ''' </summary>
+    Private Function AddSectionHeader(text As String,
+                                      x As Integer,
+                                      y As Integer) As Integer
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.Location = New Point(x, y)
+        lbl.AutoSize = True
+        lbl.Font = New Font(Me.Font, FontStyle.Bold)
+        Me.Controls.Add(lbl)
+        Return y + 22
+    End Function
+
+    Private Sub AddLabel(text As String, x As Integer, y As Integer)
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.Location = New Point(x, y)
+        lbl.AutoSize = True
+        Me.Controls.Add(lbl)
+    End Sub
+
+    Private Function AddTextBox(x As Integer, y As Integer, w As Integer) As TextBox
+        Dim tb As New TextBox()
+        tb.Location = New Point(x, y)
+        tb.Size = New Size(w, 21)
+        Me.Controls.Add(tb)
+        Return tb
+    End Function
+
+    Private Sub ShowError(message As String)
+        MessageBox.Show(message,
+                        "Hand Made Grating — Input Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning)
+    End Sub
+
+End Class

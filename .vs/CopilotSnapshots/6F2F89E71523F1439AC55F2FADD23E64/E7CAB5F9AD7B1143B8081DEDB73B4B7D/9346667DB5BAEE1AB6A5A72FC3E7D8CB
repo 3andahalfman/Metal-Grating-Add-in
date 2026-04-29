@@ -1,0 +1,21 @@
+﻿Imports System.Reflection
+Imports System.Runtime.InteropServices
+
+<Assembly: AssemblyTitle("HandMadeGratingAddinVB")>
+<Assembly: AssemblyDescription("Metal Bar Grating Inventor Add-In (VB.NET)")>
+<Assembly: AssemblyConfiguration("")>
+<Assembly: AssemblyCompany("")>
+<Assembly: AssemblyProduct("HandMadeGratingAddinVB")>
+<Assembly: AssemblyCopyright("Copyright © 2024")>
+<Assembly: AssemblyTrademark("")>
+<Assembly: AssemblyCulture("")>
+
+' Setting ComVisible to True makes the types in this assembly visible
+' to COM components. Required for Inventor to discover the add-in server.
+<Assembly: ComVisible(True)>
+
+' The following GUID is for the ID of the typelib if this project is exposed to COM.
+<Assembly: Guid("37b59293-54b3-43f0-8166-ab23d5cf61ed")>
+
+<Assembly: AssemblyVersion("1.2.0.0")>
+<Assembly: AssemblyFileVersion("1.2.0.0")>

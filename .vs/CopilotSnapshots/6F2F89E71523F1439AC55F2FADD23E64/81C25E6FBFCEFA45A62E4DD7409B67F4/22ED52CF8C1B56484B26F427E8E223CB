@@ -1,0 +1,93 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Metal Bar Grating Addin - VB.NET
+'
+' AssemblyGenerationResult: Aggregates the output of the Phase 7
+' assembly generation — the saved .iam file and inserted components.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Result of the Phase 7 assembly (.iam) generation.
+''' </summary>
+Public Class AssemblyGenerationResult
+
+    ''' <summary>True if the assembly was created and saved.</summary>
+    Public Property Success As Boolean
+
+    ''' <summary>Human-readable error when Success is False.</summary>
+    Public Property ErrorMessage As String
+
+    ''' <summary>Full path of the saved .iam file.</summary>
+    Public Property AssemblyFilePath As String
+
+    ''' <summary>Number of bearing bar occurrences inserted.</summary>
+    Public Property TotalInserted As Integer
+
+    ''' <summary>Number of bars skipped (e.g. file missing or not saved).</summary>
+    Public Property TotalSkipped As Integer
+
+    ''' <summary>Number of cross bar occurrences inserted into the assembly.</summary>
+    Public Property CrossBarsInserted As Integer
+
+    ''' <summary>Number of band bar occurrences inserted into the assembly.</summary>
+    Public Property BandBarsInserted As Integer
+
+    ''' <summary>Non-fatal warnings.</summary>
+    Public Property Warnings As List(Of String)
+
+    ' --- Factory helpers ---
+
+    Public Shared Function Succeeded(filePath As String,
+                                     inserted As Integer,
+                                     skipped As Integer,
+                                     warnings As List(Of String)) As AssemblyGenerationResult
+        Return New AssemblyGenerationResult With {
+            .Success = True,
+            .AssemblyFilePath = filePath,
+            .TotalInserted = inserted,
+            .TotalSkipped = skipped,
+            .Warnings = If(warnings, New List(Of String))
+        }
+    End Function
+
+    Public Shared Function Failed(message As String) As AssemblyGenerationResult
+        Return New AssemblyGenerationResult With {
+            .Success = False,
+            .ErrorMessage = message,
+            .TotalInserted = 0,
+            .TotalSkipped = 0,
+            .Warnings = New List(Of String)
+        }
+    End Function
+
+    ''' <summary>Builds a multi-line summary string for UI/logging.</summary>
+    Public Function ToSummary() As String
+        If Not Success Then Return "Assembly generation failed: " & ErrorMessage
+
+        Dim sb As New System.Text.StringBuilder()
+        sb.AppendLine("Grating Assembly")
+        sb.AppendLine("———————————————————————————")
+        sb.AppendLine("Bars inserted  : " & TotalInserted)
+
+        If CrossBarsInserted > 0 Then
+            sb.AppendLine("Cross bars     : " & CrossBarsInserted)
+        End If
+
+        If BandBarsInserted > 0 Then
+            sb.AppendLine("Band bars      : " & BandBarsInserted)
+        End If
+
+        If TotalSkipped > 0 Then
+            sb.AppendLine("Bars skipped   : " & TotalSkipped)
+        End If
+
+        If Warnings.Count > 0 Then
+            sb.AppendLine()
+            For Each w As String In Warnings
+                sb.AppendLine("  • " & w)
+            Next
+        End If
+
+        Return sb.ToString()
+    End Function
+
+End Class

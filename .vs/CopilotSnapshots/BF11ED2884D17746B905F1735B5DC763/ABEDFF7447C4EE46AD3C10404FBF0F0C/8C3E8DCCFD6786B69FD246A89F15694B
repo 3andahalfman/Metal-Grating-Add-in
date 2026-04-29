@@ -1,0 +1,295 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' BearingBarPartGenerator: Creates Inventor .ipt files for each
+' trimmed bearing bar from the layout result.
+'
+' Phase 9: Adds cross-rod notch slots to each bearing bar:
+'   - Base body: rectangle sketch on XY plane, extruded +Z (Phase 6)
+'   - Notches: offset work plane at bar top, cut-extrude per slot
+' Notch dimensions are derived from the selected cross bar type.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Generates individual bearing bar .ipt part files.
+''' </summary>
+Public Class BearingBarPartGenerator
+
+    Private ReadOnly _app As Application
+    Private ReadOnly _pathService As New OutputPathService()
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Generates .ipt files for all bars in the layout result.
+    ''' </summary>
+    Public Function Generate(layout As BearingBarLayoutResult,
+                             params As GratingParameters) As BearingBarGenerationResult
+        Try
+            ' Resolve output folder
+            Dim outputFolder As String = _pathService.ResolveOutputFolder(
+                params.OutputFolder, _app)
+
+            If String.IsNullOrEmpty(outputFolder) Then
+                Return BearingBarGenerationResult.Failed(
+                    "Cannot resolve output folder. " &
+                    "Specify a folder or save the active document first.")
+            End If
+
+            ' Ensure output folder exists
+            If Not Directory.Exists(outputFolder) Then
+                Try
+                    Directory.CreateDirectory(outputFolder)
+                Catch ex As Exception
+                    Return BearingBarGenerationResult.Failed(
+                        "Cannot create output folder: " & ex.Message)
+                End Try
+            End If
+
+            Trace.TraceInformation(": HMG PartGen: Generating " &
+                layout.Bars.Count & " bearing bar parts to " & outputFolder)
+
+            Dim files As New List(Of GeneratedBearingBarFile)
+            Dim warnings As New List(Of String)
+
+            ' Phase 9: Prepare notch specification from cross bar settings
+            Dim notchService As New BearingBarNotchService()
+            Dim notchSpec As CrossBarNotchSpec = CrossBarNotchSpec.FromParameters(params)
+
+            Trace.TraceInformation(": HMG PartGen: Notch spec — " & notchSpec.ToString())
+
+            If notchSpec.SlotDepth >= params.BarDepth Then
+                notchSpec.SlotDepth = params.BarDepth * 0.5
+                warnings.Add("Notch depth clamped to 50% of bar depth (" &
+                    notchSpec.SlotDepth.ToString("F4") & """).")
+                Trace.TraceWarning(": HMG PartGen: Notch depth clamped to " &
+                    notchSpec.SlotDepth.ToString("F4"))
+            End If
+
+            For Each bar As TrimmedBearingBar In layout.Bars
+                Dim genFile As GeneratedBearingBarFile = GenerateSingleBar(
+                    bar, params, outputFolder, notchService, notchSpec)
+                files.Add(genFile)
+
+                If genFile.Saved Then
+                    Trace.TraceInformation(": HMG PartGen:   OK — " &
+                        genFile.ToString() & " (" & genFile.NotchCount & " notches)")
+                Else
+                    Trace.TraceWarning(": HMG PartGen:   FAIL — " &
+                        genFile.ToString())
+                    warnings.Add("Bar " & bar.Mark & ": " & genFile.ErrorMessage)
+                End If
+            Next
+
+            Dim savedCount As Integer = 0
+            For Each f In files
+                If f.Saved Then savedCount += 1
+            Next
+
+            If savedCount = 0 Then
+                Return BearingBarGenerationResult.Failed(
+                    "All " & files.Count & " bar(s) failed to generate. " &
+                    "Check trace output for details.")
+            End If
+
+            Trace.TraceInformation(": HMG PartGen: Complete — " &
+                savedCount & "/" & files.Count & " files saved.")
+
+            Return BearingBarGenerationResult.Succeeded(files, outputFolder, warnings)
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG PartGen: Unexpected error — " & ex.ToString())
+            Return BearingBarGenerationResult.Failed(
+                "Part generation error: " & ex.Message)
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Creates a single bearing bar .ipt file.
+    ''' Step 1 — base body: rectangle on XY plane, extruded +Z (Phase 6).
+    ''' Step 2 — notch slots: offset work plane at bar top, individual
+    '''          cut-extrude features per notch position.
+    ''' </summary>
+    Private Function GenerateSingleBar(bar As TrimmedBearingBar,
+                                        params As GratingParameters,
+                                        outputFolder As String,
+                                        notchService As BearingBarNotchService,
+                                        notchSpec As CrossBarNotchSpec) As GeneratedBearingBarFile
+        Dim result As New GeneratedBearingBarFile()
+        result.SourceBar = bar
+
+        Dim partDoc As PartDocument = Nothing
+
+        Try
+            ' Resolve file path
+            Dim fullPath As String = _pathService.GenerateFilePath(
+                outputFolder, params.NamingPrefix, bar)
+            result.FilePath = fullPath
+            result.FileName = IO.Path.GetFileName(fullPath)
+
+            ' Convert inches to cm (Inventor internal units)
+            Dim lengthCm As Double = bar.Length * 2.54
+            Dim widthCm As Double = params.BarWidth * 2.54
+            Dim depthCm As Double = params.BarDepth * 2.54
+
+            ' Phase 9: Compute notch positions for this bar
+            Dim positions As List(Of Double) = notchService.ComputeNotchPositions(
+                bar.Length, params.FirstCrossBarOffset,
+                params.CrossBarOnCenter, notchSpec.SlotWidth)
+            result.NotchCount = positions.Count
+
+            Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                ": " & positions.Count & " notch position(s) computed")
+
+            ' Create new part document (invisible)
+            partDoc = CType(
+                _app.Documents.Add(DocumentTypeEnum.kPartDocumentObject,
+                                    _app.FileManager.GetTemplateFile(
+                                        DocumentTypeEnum.kPartDocumentObject),
+                                    False),
+                PartDocument)
+
+            Dim compDef As PartComponentDefinition = partDoc.ComponentDefinition
+
+            ' --- Step 1: Base rectangular bar (same as Phase 6) ---
+            Dim sketch As PlanarSketch = compDef.Sketches.Add(
+                compDef.WorkPlanes.Item(3)) ' Item(3) = XY plane
+
+            Dim tg As TransientGeometry = _app.TransientGeometry
+
+            ' Draw rectangle: length along X, width along Y, origin at (0,0)
+            sketch.SketchLines.AddAsTwoPointRectangle(
+                tg.CreatePoint2d(0, 0),
+                tg.CreatePoint2d(lengthCm, widthCm))
+
+            ' Create profile and extrude (depth along Z)
+            Dim profile As Profile = sketch.Profiles.AddForSolid()
+
+            Dim extrudeDef As ExtrudeDefinition = compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                profile, PartFeatureOperationEnum.kNewBodyOperation)
+
+            extrudeDef.SetDistanceExtent(
+                depthCm,
+                PartFeatureExtentDirectionEnum.kPositiveExtentDirection)
+
+            compDef.Features.ExtrudeFeatures.Add(extrudeDef)
+
+            ' --- Step 2: Cut notch slots from the top ---
+            If positions.Count > 0 Then
+                CutNotchSlots(compDef, tg, positions, notchSpec, widthCm, depthCm)
+                Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                    ": " & positions.Count & " notch slot(s) cut")
+            Else
+                Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                    ": No notches — plain bar")
+            End If
+
+            ' Set iProperties for downstream identification
+            SetCustomProperty(partDoc, "HMG_Mark", bar.Mark)
+            SetCustomProperty(partDoc, "HMG_BarIndex", bar.BarIndex.ToString())
+            SetCustomProperty(partDoc, "HMG_Length_in", bar.Length.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_Depth_in", params.BarDepth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_Width_in", params.BarWidth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_NotchCount", positions.Count.ToString())
+            SetCustomProperty(partDoc, "HMG_NotchWidth_in", notchSpec.SlotWidth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_NotchDepth_in", notchSpec.SlotDepth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_CrossBarType",
+                CrossBarTypeHelper.GetDisplayName(params.CrossBar))
+
+            ' Save
+            partDoc.SaveAs(fullPath, False)
+
+            result.Saved = True
+
+        Catch ex As Exception
+            result.Saved = False
+            result.ErrorMessage = ex.Message
+        Finally
+            ' Close the document (don't save again)
+            If partDoc IsNot Nothing Then
+                Try
+                    partDoc.Close(True) ' skip save — already saved
+                Catch
+                End Try
+            End If
+        End Try
+
+        Return result
+    End Function
+
+    ''' <summary>
+    ''' Cuts rectangular notch slots from the top of the bearing bar.
+    ''' Creates an offset work plane at Z = depthCm (the bar's top face)
+    ''' and adds one cut-extrude per notch position using AddAsTwoPointRectangle.
+    ''' </summary>
+    Private Sub CutNotchSlots(compDef As PartComponentDefinition,
+                               tg As TransientGeometry,
+                               positionsIn As List(Of Double),
+                               notchSpec As CrossBarNotchSpec,
+                               widthCm As Double,
+                               depthCm As Double)
+        ' Offset work plane at the top of the bar
+        Dim topPlane As WorkPlane = compDef.WorkPlanes.AddByPlaneAndOffset(
+            compDef.WorkPlanes.Item(3), depthCm) ' XY + depthCm → Z = depthCm
+        topPlane.Visible = False
+
+        Dim halfSlotCm As Double = (notchSpec.SlotWidth * 2.54) / 2.0
+        Dim notchDepthCm As Double = notchSpec.SlotDepth * 2.54
+
+        For Each posIn As Double In positionsIn
+            Dim posCm As Double = posIn * 2.54
+
+            ' Sketch one notch rectangle on the top plane
+            Dim notchSketch As PlanarSketch = compDef.Sketches.Add(topPlane)
+
+            ' Rectangle covers slot width (X) × full bar width (Y)
+            notchSketch.SketchLines.AddAsTwoPointRectangle(
+                tg.CreatePoint2d(posCm - halfSlotCm, 0),
+                tg.CreatePoint2d(posCm + halfSlotCm, widthCm))
+
+            ' Cut downward (negative = toward original XY plane)
+            Dim cutProfile As Profile = notchSketch.Profiles.AddForSolid()
+            Dim cutDef As ExtrudeDefinition = _
+                compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                    cutProfile, PartFeatureOperationEnum.kCutOperation)
+            cutDef.SetDistanceExtent(
+                notchDepthCm,
+                PartFeatureExtentDirectionEnum.kNegativeExtentDirection)
+
+            compDef.Features.ExtrudeFeatures.Add(cutDef)
+        Next
+    End Sub
+
+    ''' <summary>
+    ''' Sets a custom iProperty on the part document.
+    ''' </summary>
+    Private Sub SetCustomProperty(doc As PartDocument,
+                                   propName As String,
+                                   propValue As String)
+        Try
+            Dim customSet As PropertySet = doc.PropertySets.Item(
+                "Inventor User Defined Properties")
+
+            ' Try updating existing
+            Try
+                Dim existing As [Property] = customSet.Item(propName)
+                existing.Value = propValue
+                Return
+            Catch
+            End Try
+
+            ' Add new
+            customSet.Add(propValue, propName)
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG PartGen: Could not set property '" &
+                propName & "': " & ex.Message)
+        End Try
+    End Sub
+
+End Class

@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Addin Type="Standard">
+  <ClassId>{37b59293-54b3-43f0-8166-ab23d5cf61ed}</ClassId>
+  <ClientId>{37b59293-54b3-43f0-8166-ab23d5cf61ed}</ClientId>
+  <DisplayName>HandMadeGratingAddinVB</DisplayName>
+  <Description>Metal Bar Grating Inventor Add-In (VB.NET)</Description>
+  <Assembly>HandMadeGratingAddinVB.dll</Assembly>
+  <LoadAutomatically>1</LoadAutomatically>
+  <UserUnloadable>1</UserUnloadable>
+  <Hidden>0</Hidden>
+</Addin>

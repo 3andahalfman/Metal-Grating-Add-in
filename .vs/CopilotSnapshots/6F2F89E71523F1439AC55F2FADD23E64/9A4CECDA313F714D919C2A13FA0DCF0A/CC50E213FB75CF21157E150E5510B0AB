@@ -1,0 +1,498 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingAssemblyGenerator: Creates an Inventor assembly (.iam) and
+' inserts all generated bearing bar .ipt files at their correct
+' positions from the layout engine results.
+'
+' Phase 7: Assembly generation from Phase 5 layout + Phase 6 parts.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Generates an Inventor assembly containing all bearing bar parts
+''' placed at their correct spatial positions.
+''' </summary>
+Public Class GratingAssemblyGenerator
+
+    Private ReadOnly _app As Application
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Creates and saves an assembly with all successfully generated
+    ''' bearing bar, cross bar, and band bar parts positioned according
+    ''' to the layout result.
+    ''' </summary>
+    Public Function Generate(genResult As BearingBarGenerationResult,
+                             layoutResult As BearingBarLayoutResult,
+                             params As GratingParameters,
+                             Optional crossBarResult As CrossBarGenerationResult = Nothing,
+                             Optional bandBarResult As BandBarGenerationResult = Nothing) As AssemblyGenerationResult
+        Try
+            ' Validate inputs
+            If genResult Is Nothing OrElse Not genResult.Success Then
+                Return AssemblyGenerationResult.Failed(
+                    "No valid bearing bar generation result available.")
+            End If
+
+            If layoutResult Is Nothing OrElse Not layoutResult.Success Then
+                Return AssemblyGenerationResult.Failed(
+                    "No valid bearing bar layout result available.")
+            End If
+
+            If genResult.TotalSaved = 0 Then
+                Return AssemblyGenerationResult.Failed(
+                    "No bearing bar files were saved. Nothing to assemble.")
+            End If
+
+            ' Build assembly file path
+            Dim assemblyPath As String = BuildAssemblyFilePath(
+                genResult.OutputFolder, params.NamingPrefix)
+
+            Trace.TraceInformation(": HMG Assembly: Creating assembly at " & assemblyPath)
+
+            ' Create assembly document (visible so user can see result)
+            Dim templateFile As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kAssemblyDocumentObject)
+
+            Dim asmDoc As AssemblyDocument = CType(
+                _app.Documents.Add(
+                    DocumentTypeEnum.kAssemblyDocumentObject,
+                    templateFile,
+                    True),
+                AssemblyDocument)
+
+            Dim asmDef As AssemblyComponentDefinition = asmDoc.ComponentDefinition
+            Dim tg As TransientGeometry = _app.TransientGeometry
+
+            Dim inserted As Integer = 0
+            Dim skipped As Integer = 0
+            Dim warnings As New List(Of String)
+
+            ' Insert each saved bearing bar
+            For Each genFile As GeneratedBearingBarFile In genResult.Files
+                If Not genFile.Saved Then
+                    skipped += 1
+                    warnings.Add("Skipped " & genFile.SourceBar.Mark &
+                                 ": part file was not saved.")
+                    Trace.TraceWarning(": HMG Assembly: Skipped " &
+                        genFile.SourceBar.Mark & " — not saved.")
+                    Continue For
+                End If
+
+                If Not IO.File.Exists(genFile.FilePath) Then
+                    skipped += 1
+                    warnings.Add("Skipped " & genFile.SourceBar.Mark &
+                                 ": file not found at " & genFile.FilePath)
+                    Trace.TraceWarning(": HMG Assembly: Skipped " &
+                        genFile.SourceBar.Mark & " — file not found.")
+                    Continue For
+                End If
+
+                Try
+                    Dim matrix As Matrix = BuildPlacementMatrix(
+                        genFile.SourceBar, params, tg)
+
+                    asmDef.Occurrences.Add(genFile.FilePath, matrix)
+                    inserted += 1
+
+                    Trace.TraceInformation(": HMG Assembly:   Inserted " &
+                        genFile.SourceBar.Mark & " at (" &
+                        genFile.SourceBar.StartPoint(0).ToString("F3") & ", " &
+                        genFile.SourceBar.StartPoint(1).ToString("F3") & ")")
+
+                Catch ex As Exception
+                    skipped += 1
+                    warnings.Add("Failed to insert " & genFile.SourceBar.Mark &
+                                 ": " & ex.Message)
+                    Trace.TraceError(": HMG Assembly:   FAILED " &
+                        genFile.SourceBar.Mark & " — " & ex.Message)
+                End Try
+            Next
+
+            ' --- Insert cross bar occurrences ---
+            Dim crossBarsInserted As Integer = 0
+            If crossBarResult IsNot Nothing AndAlso crossBarResult.Success AndAlso
+               crossBarResult.Files IsNot Nothing AndAlso crossBarResult.Entries IsNot Nothing Then
+
+                ' Build length → file path lookup (one .ipt per unique length)
+                Dim lengthToFile As New Dictionary(Of String, String)
+                For Each cbFile As GeneratedCrossBarFile In crossBarResult.Files
+                    If cbFile.Saved AndAlso IO.File.Exists(cbFile.FilePath) Then
+                        Dim key As String = cbFile.SourceEntry.Length.ToString("F4")
+                        If Not lengthToFile.ContainsKey(key) Then
+                            lengthToFile(key) = cbFile.FilePath
+                        End If
+                    End If
+                Next
+
+                For Each entry As CrossBarEntry In crossBarResult.Entries
+                    Dim key As String = entry.Length.ToString("F4")
+                    If Not lengthToFile.ContainsKey(key) Then
+                        warnings.Add("Cross bar " & entry.Mark &
+                                     ": no matching .ipt file found.")
+                        Continue For
+                    End If
+
+                    Try
+                        Dim cbMatrix As Matrix = BuildCrossBarPlacementMatrix(
+                            entry, params, tg)
+
+                        asmDef.Occurrences.Add(lengthToFile(key), cbMatrix)
+                        crossBarsInserted += 1
+
+                        Trace.TraceInformation(": HMG Assembly:   Inserted cross bar " &
+                            entry.Mark & " at pos=" &
+                            entry.AbsolutePosition.ToString("F3"))
+
+                    Catch ex As Exception
+                        warnings.Add("Failed to insert cross bar " & entry.Mark &
+                                     ": " & ex.Message)
+                        Trace.TraceError(": HMG Assembly:   FAILED cross bar " &
+                            entry.Mark & " — " & ex.Message)
+                    End Try
+                Next
+            End If
+
+            ' --- Insert band bar occurrences ---
+            Dim bandBarsInserted As Integer = 0
+            If bandBarResult IsNot Nothing AndAlso bandBarResult.Success AndAlso
+               Not bandBarResult.Skipped AndAlso
+               bandBarResult.Files IsNot Nothing Then
+
+                For Each bbFile As GeneratedBandBarFile In bandBarResult.Files
+                    If Not bbFile.Saved Then
+                        warnings.Add("Skipped band bar " & bbFile.Mark &
+                                     ": part file was not saved.")
+                        Continue For
+                    End If
+
+                    If Not IO.File.Exists(bbFile.FilePath) Then
+                        warnings.Add("Skipped band bar " & bbFile.Mark &
+                                     ": file not found at " & bbFile.FilePath)
+                        Continue For
+                    End If
+
+                    Try
+                        Dim bbMatrix As Matrix = BuildBandBarPlacementMatrix(
+                            bbFile, params, tg)
+
+                        asmDef.Occurrences.Add(bbFile.FilePath, bbMatrix)
+                        bandBarsInserted += 1
+
+                        Trace.TraceInformation(": HMG Assembly:   Inserted band bar " &
+                            bbFile.Mark & " (" &
+                            bbFile.StartPoint(0).ToString("F2") & "," &
+                            bbFile.StartPoint(1).ToString("F2") & ") -> (" &
+                            bbFile.EndPoint(0).ToString("F2") & "," &
+                            bbFile.EndPoint(1).ToString("F2") & ")")
+
+                    Catch ex As Exception
+                        warnings.Add("Failed to insert band bar " & bbFile.Mark &
+                                     ": " & ex.Message)
+                        Trace.TraceError(": HMG Assembly:   FAILED band bar " &
+                            bbFile.Mark & " — " & ex.Message)
+                    End Try
+                Next
+            End If
+
+            If inserted = 0 Then
+                ' Close without saving — nothing was inserted
+                Try
+                    asmDoc.Close(True)
+                Catch
+                End Try
+                Return AssemblyGenerationResult.Failed(
+                    "No bearing bars could be inserted into the assembly.")
+            End If
+
+            ' Save the assembly
+            Try
+                asmDoc.SaveAs(assemblyPath, False)
+                Trace.TraceInformation(": HMG Assembly: Saved assembly — " &
+                    inserted & " bars, " & crossBarsInserted &
+                    " cross bars, " & bandBarsInserted &
+                    " band bars inserted to " & assemblyPath)
+            Catch ex As Exception
+                Trace.TraceError(": HMG Assembly: Failed to save — " & ex.Message)
+                warnings.Add("Assembly created but save failed: " & ex.Message)
+                Return AssemblyGenerationResult.Failed(
+                    "Assembly created with " & inserted &
+                    " bars but failed to save: " & ex.Message)
+            End Try
+
+            Dim result = AssemblyGenerationResult.Succeeded(
+                assemblyPath, inserted, skipped, warnings)
+            result.CrossBarsInserted = crossBarsInserted
+            result.BandBarsInserted = bandBarsInserted
+            Return result
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG Assembly: Unexpected error — " & ex.ToString())
+            Return AssemblyGenerationResult.Failed(
+                "Assembly generation error: " & ex.Message)
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Builds the 4×4 placement matrix to position a bearing bar
+    ''' occurrence in assembly space.
+    '''
+    ''' Each bearing bar .ipt has its geometry from origin (0,0,0):
+    '''   - Length along +X, Width (thickness) along +Y, Depth along +Z.
+    '''
+    ''' For AlongX bars: translate so bar start aligns with StartPoint
+    '''   and bar centerline sits on the lateral (Y) position.
+    '''
+    ''' For AlongY bars: rotate 90° around Z so bar length runs along Y,
+    '''   then translate to the correct position.
+    ''' </summary>
+    Private Function BuildPlacementMatrix(bar As TrimmedBearingBar,
+                                          params As GratingParameters,
+                                          tg As TransientGeometry) As Matrix
+        Dim matrix As Matrix = tg.CreateMatrix()
+
+        ' All coordinates converted from inches to cm (Inventor internal units)
+        Dim halfWidthCm As Double = (params.BarWidth / 2.0) * 2.54
+
+        If bar.SpanDirection = SpanDirectionType.AlongX Then
+            ' No rotation needed — bar already runs along X in part space.
+            ' Translate: X = startX, Y = lateralY - halfWidth (center on lateral line)
+            Dim txCm As Double = bar.StartPoint(0) * 2.54
+            Dim tyCm As Double = (bar.StartPoint(1) * 2.54) - halfWidthCm
+
+            matrix.SetTranslation(tg.CreateVector(txCm, tyCm, 0))
+
+        ElseIf bar.SpanDirection = SpanDirectionType.AlongY Then
+            ' Rotate 90° around Z so bar length runs along +Y.
+            ' After rotation: part +X → assembly +Y, part +Y → assembly -X.
+            ' Bar centerline (at part Y = width/2) maps to assembly X = -width/2.
+            ' To center on lateralX: translate X = lateralX + halfWidth.
+            matrix.SetToRotation(
+                Math.PI / 2.0,
+                tg.CreateVector(0, 0, 1),
+                tg.CreatePoint(0, 0, 0))
+
+            Dim txCm As Double = (bar.StartPoint(0) * 2.54) + halfWidthCm
+            Dim tyCm As Double = bar.StartPoint(1) * 2.54
+
+            ' Set translation via Cell to preserve the rotation components
+            matrix.Cell(1, 4) = txCm
+            matrix.Cell(2, 4) = tyCm
+            matrix.Cell(3, 4) = 0
+        End If
+
+        Return matrix
+    End Function
+
+    ''' <summary>
+    ''' Builds the 4×4 placement matrix to position a cross bar
+    ''' occurrence in assembly space.
+    '''
+    ''' Each cross bar .ipt has its cross-section on XY, length along +Z.
+    '''
+    ''' For AlongX bearing bars: cross bars run along Y.
+    '''   Rotate -90° around X so +Z → +Y, then translate to position.
+    '''
+    ''' For AlongY bearing bars: cross bars run along X.
+    '''   Rotate +90° around Y so +Z → +X, then translate to position.
+    '''
+    ''' Z positioning:
+    '''   Round cross bars — center aligns with the arc center of the
+    '''     notch profile, i.e. Z = barDepth - StraightDepth.
+    '''   Flat cross bars  — bottom edge snaps to the lowest surface
+    '''     of the notch cut, i.e. Z = barDepth - SlotDepth + halfHeight.
+    ''' </summary>
+    Private Function BuildCrossBarPlacementMatrix(entry As CrossBarEntry,
+                                                    params As GratingParameters,
+                                                    tg As TransientGeometry) As Matrix
+        Dim matrix As Matrix = tg.CreateMatrix()
+        Dim halfBarWidthCm As Double = (params.BarWidth / 2.0) * 2.54
+        Dim barDepthCm As Double = params.BarDepth * 2.54
+
+        ' Compute the correct Z height for the cross bar center.
+        ' Round: align center to the notch arc center (barDepth - StraightDepth).
+        ' Flat:  bottom edge snaps to notch bottom (barDepth - SlotDepth),
+        '        center offset up by half the flat bar height.
+        Dim notchSpec As CrossBarNotchSpec = CrossBarNotchSpec.FromParameters(params)
+        Dim crossBarZCm As Double
+        If notchSpec.IsRound Then
+            crossBarZCm = barDepthCm - (notchSpec.StraightDepth * 2.54)
+        Else
+            Dim flatHeight As Double = GetFlatBarHeight(params.CrossBar)
+            crossBarZCm = (params.BarDepth - notchSpec.SlotDepth + flatHeight / 2.0) * 2.54
+        End If
+
+        If params.SpanDirection = SpanDirectionType.AlongX Then
+            ' Cross bars run along Y (lateral axis).
+            ' Rotate -90° around X to map part +Z → assembly +Y.
+            matrix.SetToRotation(
+                -Math.PI / 2.0,
+                tg.CreateVector(1, 0, 0),
+                tg.CreatePoint(0, 0, 0))
+
+            Dim txCm As Double = entry.AbsolutePosition * 2.54
+            Dim tyCm As Double = (entry.LateralMin * 2.54) - halfBarWidthCm
+            Dim tzCm As Double = crossBarZCm
+
+            matrix.Cell(1, 4) = txCm
+            matrix.Cell(2, 4) = tyCm
+            matrix.Cell(3, 4) = tzCm
+
+        ElseIf params.SpanDirection = SpanDirectionType.AlongY Then
+            ' Cross bars run along X (lateral axis).
+            ' Rotate +90° around Y to map part +Z → assembly +X.
+            matrix.SetToRotation(
+                Math.PI / 2.0,
+                tg.CreateVector(0, 1, 0),
+                tg.CreatePoint(0, 0, 0))
+
+            Dim txCm As Double = (entry.LateralMin * 2.54) - halfBarWidthCm
+            Dim tyCm As Double = entry.AbsolutePosition * 2.54
+            Dim tzCm As Double = crossBarZCm
+
+            matrix.Cell(1, 4) = txCm
+            matrix.Cell(2, 4) = tyCm
+            matrix.Cell(3, 4) = tzCm
+        End If
+
+        Return matrix
+    End Function
+
+    ''' <summary>
+    ''' Builds the 4×4 placement matrix to position a band bar
+    ''' occurrence in assembly space.
+    '''
+    ''' Each band bar .ipt has (same convention as bearing bars):
+    '''   Length along +X, Width (BarWidth) along +Y,
+    '''   Depth (BarDepth) along +Z.
+    '''
+    ''' The band bar must be rotated so its length runs along the
+    ''' perimeter edge direction and its depth stands upright (+Z).
+    '''
+    ''' Mapping:
+    '''   Part +X (length) → edge direction in XY plane
+    '''   Part +Y (width)  → perpendicular to edge in XY plane
+    '''   Part +Z (depth)  → assembly +Z (stands upright)
+    '''
+    ''' The bar is centered on the perimeter edge line (half its
+    ''' width extends to each side of the edge).
+    ''' </summary>
+    Private Function BuildBandBarPlacementMatrix(
+            bbFile As GeneratedBandBarFile,
+            params As GratingParameters,
+            tg As TransientGeometry) As Matrix
+
+        Dim matrix As Matrix = tg.CreateMatrix()
+
+        ' Edge direction vector (inches)
+        Dim dx As Double = bbFile.EndPoint(0) - bbFile.StartPoint(0)
+        Dim dy As Double = bbFile.EndPoint(1) - bbFile.StartPoint(1)
+        Dim edgeLen As Double = Math.Sqrt(dx * dx + dy * dy)
+
+        ' Normalised edge direction
+        Dim ex As Double = dx / edgeLen
+        Dim ey As Double = dy / edgeLen
+
+        ' Perpendicular direction (rotated -90° = right-hand normal)
+        Dim px As Double = -ey
+        Dim py As Double = ex
+
+        ' Convert to cm
+        Dim halfWidthCm As Double = (params.BarWidth / 2.0) * 2.54
+        Dim startXCm As Double = bbFile.StartPoint(0) * 2.54
+        Dim startYCm As Double = bbFile.StartPoint(1) * 2.54
+
+        ' Rotation:
+        '   Part +X → (ex, ey, 0)  along edge (length)
+        '   Part +Y → (px, py, 0)  perpendicular (width)
+        '   Part +Z → (0,  0,  1)  upright (depth)
+        matrix.Cell(1, 1) = ex   ' Part X → Asm X
+        matrix.Cell(2, 1) = ey   ' Part X → Asm Y
+        matrix.Cell(3, 1) = 0    ' Part X → Asm Z
+
+        matrix.Cell(1, 2) = px   ' Part Y → Asm X
+        matrix.Cell(2, 2) = py   ' Part Y → Asm Y
+        matrix.Cell(3, 2) = 0    ' Part Y → Asm Z
+
+        matrix.Cell(1, 3) = 0    ' Part Z → Asm X
+        matrix.Cell(2, 3) = 0    ' Part Z → Asm Y
+        matrix.Cell(3, 3) = 1    ' Part Z → Asm Z
+
+        ' Translation: the segment coordinates are pre-inset by halfWidth
+        ' toward the polygon interior.  Combined with the -halfWidth * perp
+        ' offset here, the bar outer face lands exactly on the perimeter edge.
+        matrix.Cell(1, 4) = startXCm - halfWidthCm * px
+        matrix.Cell(2, 4) = startYCm - halfWidthCm * py
+        matrix.Cell(3, 4) = 0
+
+        Return matrix
+    End Function
+
+    ''' <summary>
+    ''' Returns the height (tall dimension) of a flat/rectangular
+    ''' cross bar type in inches.
+    ''' </summary>
+    Private Function GetFlatBarHeight(crossBar As CrossBarType) As Double
+        Select Case crossBar
+            Case CrossBarType.Flat_1_4_x_1
+                Return 1.0
+            Case CrossBarType.Flat_1_4_x_1_1_4
+                Return 1.25
+            Case CrossBarType.Flat_3_8_x_1
+                Return 1.0
+            Case CrossBarType.Flat_3_8_x_1_1_4
+                Return 1.25
+            Case Else
+                Return 1.0
+        End Select
+    End Function
+
+    ''' <summary>
+    ''' Builds a unique .iam file path in the output folder.
+    ''' Pattern: {Prefix}_Assembly.iam (with counter if exists).
+    ''' </summary>
+    Private Function BuildAssemblyFilePath(outputFolder As String,
+                                           prefix As String) As String
+        Dim safePfx As String = SanitizeFileName(If(prefix, "Grating"))
+        Dim baseName As String = safePfx & "_Assembly"
+        Dim fileName As String = baseName & ".iam"
+        Dim fullPath As String = IO.Path.Combine(outputFolder, fileName)
+
+        ' Avoid overwriting existing assemblies
+        If IO.File.Exists(fullPath) Then
+            Dim counter As Integer = 1
+            Do
+                fileName = baseName & "_" & counter & ".iam"
+                fullPath = IO.Path.Combine(outputFolder, fileName)
+                counter += 1
+            Loop While IO.File.Exists(fullPath) AndAlso counter < 1000
+        End If
+
+        Return fullPath
+    End Function
+
+    ''' <summary>
+    ''' Removes characters that are invalid in file names.
+    ''' </summary>
+    Private Function SanitizeFileName(name As String) As String
+        Dim invalid() As Char = IO.Path.GetInvalidFileNameChars()
+        Dim result As New System.Text.StringBuilder()
+        For Each c As Char In name
+            If Array.IndexOf(invalid, c) < 0 Then
+                result.Append(c)
+            Else
+                result.Append("_"c)
+            End If
+        Next
+        If result.Length = 0 Then Return "Grating"
+        Return result.ToString()
+    End Function
+
+End Class

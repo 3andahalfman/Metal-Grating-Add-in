@@ -1,0 +1,301 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' CrossBarNotchSpec: Defines the notch slot dimensions for a given
+' cross bar type and surface profile.  Used by BearingBarNotchService
+' to compute notch positions and build the laser-cut side profile of
+' each bearing bar.
+'
+' Dimensions come from the cross bar profile DWG library.
+' Each of the 14 cross bar type + surface combinations has its own
+' DWG with exact slot width, straight wall depth, and bottom radius.
+'
+' SlotWidth       = notch opening width along the bar (with clearance).
+' StraightDepth   = straight wall depth from top edge before the arc.
+' BottomRadius    = semicircular arc radius at the bottom (round only).
+' SlotDepth       = total depth = StraightDepth + BottomRadius.
+' CrossBarDiameter = actual cross bar size (diameter or thickness),
+'                    used for the cross bar .ipt part, NOT the notch.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Notch geometry specification derived from the selected cross bar
+''' type and surface profile.  All dimensions in inches.
+''' </summary>
+Public Class CrossBarNotchSpec
+
+    ''' <summary>Notch slot opening width along the bar length (inches).
+    ''' Includes clearance — may be slightly larger than the bar diameter.</summary>
+    Public Property SlotWidth As Double
+
+    ''' <summary>Total notch depth from the top edge of the bar (inches).
+    ''' Equals StraightDepth + BottomRadius.</summary>
+    Public Property SlotDepth As Double
+
+    ''' <summary>Depth of straight vertical walls from top edge before
+    ''' the semicircular arc begins (inches).  0 for legacy types not
+    ''' yet updated with DWG dimensions.</summary>
+    Public Property StraightDepth As Double
+
+    ''' <summary>Radius of the semicircular bottom for round cross bars
+    ''' (inches).  0 for rectangular cross bars.</summary>
+    Public Property BottomRadius As Double
+
+    ''' <summary>Actual cross bar dimension — diameter for round,
+    ''' thickness for rectangular (inches).  Used by CrossBarPartGenerator
+    ''' for the cross bar .ipt, NOT for the notch geometry.</summary>
+    Public Property CrossBarDiameter As Double
+
+    ''' <summary>True for round cross bars.</summary>
+    Public Property IsRound As Boolean
+
+    ''' <summary>Human-readable description of the notch type.</summary>
+    Public Property Description As String
+
+    ''' <summary>True when the surface profile is serrated.</summary>
+    Public Property IsSerrated As Boolean
+
+    ''' <summary>Scallop arc chord width at bar top (inches).</summary>
+    Public Property SerrationScallopChord As Double
+
+    ''' <summary>Flat land width between adjacent scallops (inches).</summary>
+    Public Property SerrationFlatWidth As Double
+
+    ''' <summary>Scallop arc radius (inches).</summary>
+    Public Property SerrationArcRadius As Double
+
+    ''' <summary>Clearance from notch slot edge to nearest scallop (inches).</summary>
+    Public Property SerrationMargin As Double
+
+    ''' <summary>
+    ''' Derives notch dimensions from the grating parameters.
+    ''' Uses exact DWG profile dimensions where available;
+    ''' falls back to computed defaults for types not yet updated.
+    ''' </summary>
+    Public Shared Function FromParameters(params As GratingParameters) As CrossBarNotchSpec
+        Dim spec As New CrossBarNotchSpec()
+
+        Select Case params.CrossBar
+            Case CrossBarType.Round_3_8
+                spec.IsRound = True
+                spec.CrossBarDiameter = 0.375
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 0.188
+                    spec.BottomRadius = 0.198
+                    spec.SlotDepth = 0.386
+                    spec.Description = "3/8"" RND PLAIN slot"
+                Else
+                    ' Serrated — from DWG: SD=0.193, R=0.198, margin=0.149
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 0.193
+                    spec.BottomRadius = 0.198
+                    spec.SlotDepth = 0.391
+                    spec.Description = "3/8"" RND SERRATED slot"
+                    spec.IsSerrated = True
+                    spec.SerrationScallopChord = 0.306
+                    spec.SerrationFlatWidth = 0.194
+                    spec.SerrationArcRadius = 0.156
+                    spec.SerrationMargin = 0.149
+                End If
+
+            Case CrossBarType.Round_1_2
+                spec.IsRound = True
+                spec.CrossBarDiameter = 0.5
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.520
+                    spec.StraightDepth = 0.250
+                    spec.BottomRadius = 0.260
+                    spec.SlotDepth = 0.510
+                    spec.Description = "1/2"" RND PLAIN slot"
+                Else
+                    ' Serrated — notch dims same as plain; serration scallops
+                    ' from DWG: chord=0.306, flat=0.194, R=0.156, margin=0.087
+                    spec.SlotWidth = 0.520
+                    spec.StraightDepth = 0.250
+                    spec.BottomRadius = 0.260
+                    spec.SlotDepth = 0.510
+                    spec.Description = "1/2"" RND SERRATED slot"
+                    spec.IsSerrated = True
+                    spec.SerrationScallopChord = 0.306
+                    spec.SerrationFlatWidth = 0.194
+                    spec.SerrationArcRadius = 0.156
+                    spec.SerrationMargin = 0.087
+                End If
+
+            Case CrossBarType.Round_1_4
+                spec.IsRound = True
+                spec.CrossBarDiameter = 0.25
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 0.135
+                    spec.BottomRadius = 0.135
+                    spec.SlotDepth = 0.270
+                    spec.Description = "1/4"" RND PLAIN slot"
+                Else
+                    ' Serrated — notch dims same as plain; universal scallop pattern
+                    ' from DWG: chord=0.306, flat=0.194, R=0.156, margin=0.212
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 0.135
+                    spec.BottomRadius = 0.135
+                    spec.SlotDepth = 0.270
+                    spec.Description = "1/4"" RND SERRATED slot"
+                    spec.IsSerrated = True
+                    spec.SerrationScallopChord = 0.306
+                    spec.SerrationFlatWidth = 0.194
+                    spec.SerrationArcRadius = 0.156
+                    spec.SerrationMargin = 0.212
+                End If
+
+            Case CrossBarType.Flat_1_4_x_1
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.25
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.010
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.010
+                    spec.Description = "1/4"" x 1"" REC PLAIN slot"
+                Else
+                    ' Serrated — notch dims same as plain; universal scallop pattern
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.010
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.010
+                    spec.Description = "1/4"" x 1"" REC SERRATED slot"
+                    spec.IsSerrated = True
+                    spec.SerrationScallopChord = 0.306
+                    spec.SerrationFlatWidth = 0.194
+                    spec.SerrationArcRadius = 0.156
+                    spec.SerrationMargin = 0.212
+                End If
+
+            Case CrossBarType.Flat_1_4_x_1_1_4
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.25
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.260
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.260
+                    spec.Description = "1/4"" x 1-1/4"" REC PLAIN slot"
+                Else
+                    ' Serrated — notch dims same as plain; universal scallop pattern
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.260
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.260
+                    spec.Description = "1/4"" x 1-1/4"" REC SERRATED slot"
+                    spec.IsSerrated = True
+                    spec.SerrationScallopChord = 0.306
+                    spec.SerrationFlatWidth = 0.194
+                    spec.SerrationArcRadius = 0.156
+                    spec.SerrationMargin = 0.212
+                End If
+
+            Case CrossBarType.Flat_3_8_x_1
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.375
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 1.010
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.010
+                    spec.Description = "3/8"" x 1"" REC PLAIN slot"
+                Else
+                    ' Serrated — notch dims same as plain; universal scallop pattern
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 1.010
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.010
+                    spec.Description = "3/8"" x 1"" REC SERRATED slot"
+                    spec.IsSerrated = True
+                    spec.SerrationScallopChord = 0.306
+                    spec.SerrationFlatWidth = 0.194
+                    spec.SerrationArcRadius = 0.156
+                    spec.SerrationMargin = 0.149
+                End If
+
+            Case CrossBarType.Flat_3_8_x_1_1_4
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.375
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 1.260
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.260
+                    spec.Description = "3/8"" x 1-1/4"" REC PLAIN slot"
+                Else
+                    ' Serrated — notch dims same as plain; universal scallop pattern
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 1.260
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.260
+                    spec.Description = "3/8"" x 1-1/4"" REC SERRATED slot"
+                    spec.IsSerrated = True
+                    spec.SerrationScallopChord = 0.306
+                    spec.SerrationFlatWidth = 0.194
+                    spec.SerrationArcRadius = 0.156
+                    spec.SerrationMargin = 0.149
+                End If
+
+            Case Else
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.375
+                spec.SlotWidth = 0.375
+                spec.StraightDepth = params.BarDepth / 2.0
+                spec.BottomRadius = 0.0
+                spec.SlotDepth = params.BarDepth / 2.0
+                spec.Description = "Default slot (unknown cross bar type)"
+        End Select
+
+        ' Apply user overrides if provided
+        If params.NotchSlotWidthOverride.HasValue Then
+            spec.SlotWidth = params.NotchSlotWidthOverride.Value
+        End If
+        If params.NotchSlotDepthOverride.HasValue Then
+            spec.SlotDepth = params.NotchSlotDepthOverride.Value
+            ' For rectangular bars, StraightDepth = SlotDepth
+            If Not spec.IsRound Then
+                spec.StraightDepth = params.NotchSlotDepthOverride.Value
+            End If
+        End If
+        If params.NotchStraightDepthOverride.HasValue Then
+            spec.StraightDepth = params.NotchStraightDepthOverride.Value
+            ' Recompute total depth for round: StraightDepth + BottomRadius
+            If spec.IsRound Then
+                spec.SlotDepth = spec.StraightDepth + spec.BottomRadius
+            End If
+        End If
+        If params.NotchBottomRadiusOverride.HasValue Then
+            spec.BottomRadius = params.NotchBottomRadiusOverride.Value
+            ' Recompute total depth for round: StraightDepth + BottomRadius
+            If spec.IsRound Then
+                spec.SlotDepth = spec.StraightDepth + spec.BottomRadius
+            End If
+        End If
+
+        Return spec
+    End Function
+
+    Public Overrides Function ToString() As String
+        Dim s As String
+        If IsRound Then
+            s = Description & " — W=" & SlotWidth.ToString("F4") &
+                """ SD=" & StraightDepth.ToString("F4") &
+                """ R=" & BottomRadius.ToString("F4") &
+                """ D=" & SlotDepth.ToString("F4") & """"
+        Else
+            s = Description & " — W=" & SlotWidth.ToString("F4") &
+                """ D=" & SlotDepth.ToString("F4") & """"
+        End If
+        If IsSerrated Then
+            s &= " [Serrated: chord=" & SerrationScallopChord.ToString("F3") &
+                 " flat=" & SerrationFlatWidth.ToString("F3") &
+                 " R=" & SerrationArcRadius.ToString("F3") &
+                 " margin=" & SerrationMargin.ToString("F3") & "]"
+        End If
+        Return s
+    End Function
+
+End Class

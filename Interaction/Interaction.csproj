@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<PackageReference Include="Autodesk.Authentication" Version="2.0.0" />
+	<PackageReference Include="Autodesk.Forge.DesignAutomation" Version="6.0.2" />
+	<PackageReference Include="Autodesk.ModelDerivative" Version="2.0.0" />
+	<PackageReference Include="Autodesk.Oss" Version="2.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

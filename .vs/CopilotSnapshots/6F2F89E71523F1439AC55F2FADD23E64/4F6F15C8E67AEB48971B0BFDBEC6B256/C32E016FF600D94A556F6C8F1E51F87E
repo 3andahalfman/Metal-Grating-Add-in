@@ -1,0 +1,43 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' NewSketchCreationResult: Output of the Phase 16
+' BoundarySourceService.CreateNewBoundarySketch() method.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Result of creating a new empty boundary sketch in the active Part.
+''' </summary>
+Public Class NewSketchCreationResult
+
+    ''' <summary>True if the sketch was created and named successfully.</summary>
+    Public Property Success As Boolean
+
+    ''' <summary>Human-readable error when Success is False.</summary>
+    Public Property ErrorMessage As String
+
+    ''' <summary>The actual sketch name that was assigned.</summary>
+    Public Property SketchName As String
+
+    ' --- Factory helpers ---
+
+    Public Shared Function Succeeded(sketchName As String) As NewSketchCreationResult
+        Return New NewSketchCreationResult With {
+            .Success = True,
+            .SketchName = sketchName
+        }
+    End Function
+
+    Public Shared Function Failed(message As String) As NewSketchCreationResult
+        Return New NewSketchCreationResult With {
+            .Success = False,
+            .ErrorMessage = message
+        }
+    End Function
+
+    Public Overrides Function ToString() As String
+        If Success Then Return "Created sketch: " & SketchName
+        Return "Failed: " & ErrorMessage
+    End Function
+
+End Class

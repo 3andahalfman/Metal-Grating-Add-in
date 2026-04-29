@@ -1,0 +1,61 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingParameters: Version 1 parameter model for bearing bar
+' generation. Stores the validated inputs collected from the user.
+'
+' Units: all dimensions are in inches.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Direction the bearing bars span across the grating perimeter.
+''' </summary>
+Public Enum SpanDirectionType
+    ''' <summary>Bearing bars run parallel to the sketch X axis.</summary>
+    AlongX = 0
+    ''' <summary>Bearing bars run parallel to the sketch Y axis.</summary>
+    AlongY = 1
+End Enum
+
+''' <summary>
+''' Stores Version 1 grating input parameters.
+''' </summary>
+Public Class GratingParameters
+
+    ''' <summary>Direction the bearing bars span.</summary>
+    Public Property SpanDirection As SpanDirectionType
+
+    ''' <summary>Bearing bar depth (height of the bar cross-section) in inches.</summary>
+    Public Property BarDepth As Double
+
+    ''' <summary>Bearing bar width (thickness of the bar cross-section) in inches.</summary>
+    Public Property BarWidth As Double
+
+    ''' <summary>On-center spacing between bearing bars in inches.</summary>
+    Public Property OnCenterSpacing As Double
+
+    ''' <summary>
+    ''' Output folder path for generated files.
+    ''' Empty string means use the active document's folder.
+    ''' </summary>
+    Public Property OutputFolder As String
+
+    ''' <summary>Optional naming prefix for output files.</summary>
+    Public Property NamingPrefix As String
+
+    ''' <summary>
+    ''' Creates default parameters matching common 19-W-4 grating:
+    '''   1" deep x 3/16" wide bars at 1-3/16" on-center.
+    ''' </summary>
+    Public Shared Function CreateDefaults() As GratingParameters
+        Return New GratingParameters With {
+            .SpanDirection = SpanDirectionType.AlongX,
+            .BarDepth = 1.0,
+            .BarWidth = 0.1875,
+            .OnCenterSpacing = 1.1875,
+            .OutputFolder = "",
+            .NamingPrefix = "Grating"
+        }
+    End Function
+
+End Class

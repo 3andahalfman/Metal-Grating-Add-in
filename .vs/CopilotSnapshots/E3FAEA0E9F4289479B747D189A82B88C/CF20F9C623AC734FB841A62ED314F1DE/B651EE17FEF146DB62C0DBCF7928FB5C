@@ -1,0 +1,2 @@
+﻿' Commands namespace: Inventor ribbon buttons, command definitions, and handlers.
+' Phase 2+: Add command classes here (e.g., CreateGratingCommand.vb).

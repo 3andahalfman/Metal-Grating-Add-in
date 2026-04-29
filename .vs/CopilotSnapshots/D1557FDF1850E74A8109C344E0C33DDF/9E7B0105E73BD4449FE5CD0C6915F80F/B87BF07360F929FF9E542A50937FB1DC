@@ -1,0 +1,36 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GeneratedBearingBarFile: Records the output of a single bearing
+' bar part generation — the saved file path and source bar data.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Tracks one generated .ipt file created from a TrimmedBearingBar.
+''' </summary>
+Public Class GeneratedBearingBarFile
+
+    ''' <summary>The source bar from the layout engine.</summary>
+    Public Property SourceBar As TrimmedBearingBar
+
+    ''' <summary>Full path of the saved .ipt file.</summary>
+    Public Property FilePath As String
+
+    ''' <summary>File name only (no directory).</summary>
+    Public Property FileName As String
+
+    ''' <summary>True if the file was saved successfully.</summary>
+    Public Property Saved As Boolean
+
+    ''' <summary>Error message if Saved is False.</summary>
+    Public Property ErrorMessage As String
+
+    Public Overrides Function ToString() As String
+        If Saved Then
+            Return SourceBar.Mark & " -> " & FileName
+        Else
+            Return SourceBar.Mark & " FAILED: " & ErrorMessage
+        End If
+    End Function
+
+End Class

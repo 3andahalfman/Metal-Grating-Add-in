@@ -1,0 +1,159 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' BandBarGenerationResult: Aggregates the output of the band bar
+' part generation phase — all generated files plus summary data.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Result of the Phase 18 band bar .ipt generation pass.
+''' </summary>
+Public Class BandBarGenerationResult
+
+    ''' <summary>True if at least one file was generated.</summary>
+    Public Property Success As Boolean
+
+    ''' <summary>Human-readable error when Success is False.</summary>
+    Public Property ErrorMessage As String
+
+    ''' <summary>Per-segment generation records.</summary>
+    Public Property Files As List(Of GeneratedBandBarFile)
+
+    ''' <summary>Non-fatal warnings.</summary>
+    Public Property Warnings As List(Of String)
+
+    ''' <summary>Resolved output folder that was used.</summary>
+    Public Property OutputFolder As String
+
+    ''' <summary>
+    ''' True when band bar generation was intentionally skipped
+    ''' because the project uses OpenEnded banding.
+    ''' </summary>
+    Public Property Skipped As Boolean
+
+    ' --- Computed helpers ---
+
+    Public ReadOnly Property TotalSegments As Integer
+        Get
+            Return If(Files IsNot Nothing, Files.Count, 0)
+        End Get
+    End Property
+
+    Public ReadOnly Property TotalSaved As Integer
+        Get
+            If Files Is Nothing Then Return 0
+            Dim count As Integer = 0
+            For Each f In Files
+                If f.Saved Then count += 1
+            Next
+            Return count
+        End Get
+    End Property
+
+    Public ReadOnly Property TotalFailed As Integer
+        Get
+            Return TotalSegments - TotalSaved
+        End Get
+    End Property
+
+    Public ReadOnly Property TotalLength As Double
+        Get
+            If Files Is Nothing Then Return 0
+            Dim sum As Double = 0
+            For Each f In Files
+                If f.Saved Then sum += f.Length
+            Next
+            Return sum
+        End Get
+    End Property
+
+    ' --- Factory helpers ---
+
+    Public Shared Function Succeeded(files As List(Of GeneratedBandBarFile),
+                                     outputFolder As String,
+                                     warnings As List(Of String)) As BandBarGenerationResult
+        Return New BandBarGenerationResult With {
+            .Success = True,
+            .Files = files,
+            .OutputFolder = outputFolder,
+            .Warnings = If(warnings, New List(Of String)),
+            .Skipped = False
+        }
+    End Function
+
+    Public Shared Function Failed(message As String) As BandBarGenerationResult
+        Return New BandBarGenerationResult With {
+            .Success = False,
+            .ErrorMessage = message,
+            .Files = New List(Of GeneratedBandBarFile),
+            .Warnings = New List(Of String),
+            .Skipped = False
+        }
+    End Function
+
+    ''' <summary>
+    ''' Returns a result indicating band bars were intentionally skipped
+    ''' because the project is configured as OpenEnded.
+    ''' </summary>
+    Public Shared Function SkippedOpenEnded() As BandBarGenerationResult
+        Return New BandBarGenerationResult With {
+            .Success = True,
+            .ErrorMessage = Nothing,
+            .Files = New List(Of GeneratedBandBarFile),
+            .Warnings = New List(Of String),
+            .Skipped = True
+        }
+    End Function
+
+    ''' <summary>
+    ''' Builds a band bar length table listing each segment with its
+    ''' length and edge coordinates.
+    ''' </summary>
+    Public Function BuildLengthTable() As String
+        If Files Is Nothing OrElse Files.Count = 0 Then
+            Return "(No band bars)"
+        End If
+
+        Dim sb As New System.Text.StringBuilder()
+        sb.AppendLine("Band Bar Length Table")
+        sb.AppendLine("—————————————————————")
+        For Each f In Files
+            If f.Saved Then
+                sb.AppendLine("  " & f.Mark & ": " &
+                    f.Length.ToString("F4") & """" &
+                    "  (" & f.StartPoint(0).ToString("F2") & "," &
+                    f.StartPoint(1).ToString("F2") & ") -> (" &
+                    f.EndPoint(0).ToString("F2") & "," &
+                    f.EndPoint(1).ToString("F2") & ")")
+            End If
+        Next
+        sb.AppendLine("Total: " & TotalSaved & " band bar(s), " &
+                      TotalLength.ToString("F4") & """ total length")
+        Return sb.ToString()
+    End Function
+
+    ''' <summary>Builds a multi-line summary string for UI/logging.</summary>
+    Public Function ToSummary() As String
+        If Skipped Then
+            Return "Band Bars: Skipped (Open Ended)"
+        End If
+
+        If Not Success Then Return "Band bar generation failed: " & ErrorMessage
+
+        Dim sb As New System.Text.StringBuilder()
+        sb.AppendLine("Band Bars")
+        sb.AppendLine("————————————————————————————————")
+        sb.AppendLine("Files saved      : " & TotalSaved & " / " & TotalSegments)
+        sb.AppendLine("Total length     : " & TotalLength.ToString("F4") & """")
+
+        If Warnings IsNot Nothing AndAlso Warnings.Count > 0 Then
+            sb.AppendLine()
+            For Each w In Warnings
+                sb.AppendLine("  • " & w)
+            Next
+        End If
+
+        Return sb.ToString()
+    End Function
+
+End Class

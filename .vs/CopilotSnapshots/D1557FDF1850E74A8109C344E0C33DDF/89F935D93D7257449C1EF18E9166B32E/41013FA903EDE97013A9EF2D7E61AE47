@@ -1,0 +1,117 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingProject: Top-level model that represents a single grating
+' generation project. Aggregates boundary source, perimeter geometry,
+' parameters, and all phase results into one cohesive context.
+'
+' Replaces the scattered Last* properties on GratingCommand and
+' provides the foundation for persistence and project re-open.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Represents a complete grating project context. All pipeline phases
+''' read from and write to this single model.
+''' </summary>
+Public Class GratingProject
+
+    ''' <summary>User-visible project name (e.g. "Panel-7A").</summary>
+    Public Property ProjectName As String
+
+    ''' <summary>How the boundary perimeter was obtained.</summary>
+    Public Property BoundarySource As BoundarySourceInfo
+
+    ''' <summary>Validated perimeter geometry from the boundary sketch.</summary>
+    Public Property Perimeter As PerimeterData
+
+    ''' <summary>Grating generation parameters (bar sizes, spacings, etc.).</summary>
+    Public Property Parameters As GratingParameters
+
+    ''' <summary>Bearing bar layout result from the scan-line engine.</summary>
+    Public Property LayoutResult As BearingBarLayoutResult
+
+    ''' <summary>Part file generation result (.ipt files).</summary>
+    Public Property GenerationResult As BearingBarGenerationResult
+
+    ''' <summary>Assembly generation result (.iam file).</summary>
+    Public Property AssemblyResult As AssemblyGenerationResult
+
+    ''' <summary>UTC timestamp when the project was first created.</summary>
+    Public Property CreatedUtc As DateTime
+
+    ''' <summary>UTC timestamp of the last pipeline execution.</summary>
+    Public Property LastModifiedUtc As DateTime
+
+    ' --- Computed helpers ---
+
+    ''' <summary>True if the perimeter has been successfully established.</summary>
+    Public ReadOnly Property HasPerimeter As Boolean
+        Get
+            Return Perimeter IsNot Nothing AndAlso
+                   Perimeter.OuterLoopVertices IsNot Nothing AndAlso
+                   Perimeter.OuterLoopVertices.Count >= 3
+        End Get
+    End Property
+
+    ''' <summary>True if the project has been fully generated (parts + assembly).</summary>
+    Public ReadOnly Property IsFullyGenerated As Boolean
+        Get
+            Return GenerationResult IsNot Nothing AndAlso GenerationResult.Success AndAlso
+                   AssemblyResult IsNot Nothing AndAlso AssemblyResult.Success
+        End Get
+    End Property
+
+    ' --- Factory ---
+
+    ''' <summary>
+    ''' Creates a new project from an explicit boundary source and a
+    ''' validated perimeter selection. Used by the Phase 11+ dialog flow.
+    ''' </summary>
+    Public Shared Function Create(projectName As String,
+                                  boundarySource As BoundarySourceInfo,
+                                  selectionResult As SelectionResult) As GratingProject
+        Return New GratingProject With {
+            .ProjectName = If(projectName, "Grating"),
+            .BoundarySource = boundarySource,
+            .Perimeter = selectionResult.Perimeter,
+            .CreatedUtc = DateTime.UtcNow,
+            .LastModifiedUtc = DateTime.UtcNow
+        }
+    End Function
+
+    ''' <summary>
+    ''' Creates a new project for the legacy selected-sketch workflow
+    ''' (no dialog). The project name defaults to the sketch name.
+    ''' </summary>
+    Public Shared Function FromSelection(selectionResult As SelectionResult) As GratingProject
+        Dim perim As PerimeterData = selectionResult.Perimeter
+        Return Create(
+            If(perim.SketchName, "Grating"),
+            BoundarySourceInfo.FromSelectedSketch(If(perim.SketchName, "Sketch")),
+            selectionResult)
+    End Function
+
+    ''' <summary>Builds a compact one-line description for logging.</summary>
+    Public Overrides Function ToString() As String
+        Dim parts As New System.Text.StringBuilder()
+        parts.Append("GratingProject(""")
+        parts.Append(If(ProjectName, "?"))
+        parts.Append("""")
+        If HasPerimeter Then
+            parts.Append(", ")
+            parts.Append(Perimeter.EdgeCount)
+            parts.Append(" edges")
+        End If
+        If LayoutResult IsNot Nothing AndAlso LayoutResult.Success Then
+            parts.Append(", ")
+            parts.Append(LayoutResult.Bars.Count)
+            parts.Append(" bars")
+        End If
+        If IsFullyGenerated Then
+            parts.Append(", complete")
+        End If
+        parts.Append(")")
+        Return parts.ToString()
+    End Function
+
+End Class

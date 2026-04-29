@@ -1,0 +1,59 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' InputValidationService: Validates Version 1 grating parameters.
+' Returns a list of human-readable error messages (empty = valid).
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Validates a <see cref="GratingParameters"/> instance.
+''' </summary>
+Public Class InputValidationService
+
+    ''' <summary>
+    ''' Validates all fields. Returns an empty list when all values are acceptable.
+    ''' </summary>
+    Public Shared Function Validate(params As GratingParameters) As List(Of String)
+        Dim errors As New List(Of String)
+
+        ' --- Bar depth ---
+        If params.BarDepth <= 0 Then
+            errors.Add("Bar depth must be greater than zero.")
+        End If
+
+        ' --- Bar width ---
+        If params.BarWidth <= 0 Then
+            errors.Add("Bar width must be greater than zero.")
+        ElseIf params.BarDepth > 0 AndAlso params.BarWidth >= params.BarDepth Then
+            errors.Add("Bar width must be less than bar depth.")
+        End If
+
+        ' --- On-center spacing ---
+        If params.OnCenterSpacing <= 0 Then
+            errors.Add("On-center spacing must be greater than zero.")
+        ElseIf params.BarWidth > 0 AndAlso params.OnCenterSpacing <= params.BarWidth Then
+            errors.Add("On-center spacing must be greater than the bar width.")
+        End If
+
+        ' --- Output folder (optional but must exist if specified) ---
+        If Not String.IsNullOrWhiteSpace(params.OutputFolder) Then
+            If Not System.IO.Directory.Exists(params.OutputFolder) Then
+                errors.Add("Output folder does not exist: " & params.OutputFolder)
+            End If
+        End If
+
+        ' --- Naming prefix (optional, basic sanity) ---
+        If params.NamingPrefix IsNot Nothing Then
+            Dim invalidChars() As Char = System.IO.Path.GetInvalidFileNameChars()
+            For Each c As Char In params.NamingPrefix
+                If Array.IndexOf(invalidChars, c) >= 0 Then
+                    errors.Add("Naming prefix contains invalid filename characters.")
+                    Exit For
+                End If
+            Next
+        End If
+
+        Return errors
+    End Function
+
+End Class

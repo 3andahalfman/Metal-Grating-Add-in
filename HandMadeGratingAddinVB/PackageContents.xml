@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ApplicationPackage SchemaVersion="1.0"
+                    Version="1.0"
+                    ProductCode="{37b59293-54b3-43f0-8166-ab23d5cf61ed}"
+                    Name="HandMadeGratingAddinVB"
+                    Description="Hand Made Grating Add-In Plugin"
+                    Author="HandMadeGrating Dev">
+    <CompanyDetails Name="" Phone="" Url="" Email="" />
+    <Components>
+        <!-- For Inventor Engine, "Platform" attribute must be "Inventor" -->
+        <RuntimeRequirements OS="Win64" Platform="Inventor" />
+        <!-- For Inventor Plug-in, the "Module" attribute must point to the .addin manifest file. -->
+        <ComponentEntry LoadOnAutoCADStartup="False"
+                        LoadOnCommandInvocation="False"
+                        AppDescription="Hand Made Grating Add-In App Package."
+                        ModuleName="./Contents/HandMadeGratingAddinVB.Inventor.addin"
+                        AppName="HandMadeGratingAddinVB" />
+    </Components>
+    <EnvironmentVariables>
+    </EnvironmentVariables>
+</ApplicationPackage>

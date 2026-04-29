@@ -1,0 +1,80 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Metal Bar Grating Addin - VB.NET
+'
+' DrawingGenerationResult: Captures the output of the Phase 20
+' fabrication drawing generation — the saved .idw file, placed views,
+' and schedule tables.
+'
+' Phase 20 — Fabrication drawing generation.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Result of the Phase 20 fabrication drawing (.idw) generation.
+''' </summary>
+Public Class DrawingGenerationResult
+
+    ''' <summary>True if the drawing was created and saved.</summary>
+    Public Property Success As Boolean
+
+    ''' <summary>Human-readable error when Success is False.</summary>
+    Public Property ErrorMessage As String
+
+    ''' <summary>Full path of the saved drawing file.</summary>
+    Public Property DrawingFilePath As String
+
+    ''' <summary>True if the assembly base view was placed on the sheet.</summary>
+    Public Property ViewPlaced As Boolean
+
+    ''' <summary>Number of schedule tables placed on the drawing.</summary>
+    Public Property TablesPlaced As Integer
+
+    ''' <summary>Non-fatal warnings.</summary>
+    Public Property Warnings As List(Of String)
+
+    ' --- Factory helpers ---
+
+    Public Shared Function Succeeded(filePath As String,
+                                     viewPlaced As Boolean,
+                                     tablesPlaced As Integer,
+                                     warnings As List(Of String)) As DrawingGenerationResult
+        Return New DrawingGenerationResult With {
+            .Success = True,
+            .DrawingFilePath = filePath,
+            .ViewPlaced = viewPlaced,
+            .TablesPlaced = tablesPlaced,
+            .Warnings = If(warnings, New List(Of String))
+        }
+    End Function
+
+    Public Shared Function Failed(message As String) As DrawingGenerationResult
+        Return New DrawingGenerationResult With {
+            .Success = False,
+            .ErrorMessage = message,
+            .ViewPlaced = False,
+            .TablesPlaced = 0,
+            .Warnings = New List(Of String)
+        }
+    End Function
+
+    ''' <summary>Builds a multi-line summary string for UI/logging.</summary>
+    Public Function ToSummary() As String
+        If Not Success Then Return "Drawing generation failed: " & ErrorMessage
+
+        Dim sb As New System.Text.StringBuilder()
+        sb.AppendLine("Fabrication Drawing")
+        sb.AppendLine("———————————————————————————")
+        sb.AppendLine("Drawing file   : " & DrawingFilePath)
+        sb.AppendLine("View placed    : " & If(ViewPlaced, "Yes", "No"))
+        sb.AppendLine("Tables placed  : " & TablesPlaced)
+
+        If Warnings IsNot Nothing AndAlso Warnings.Count > 0 Then
+            sb.AppendLine()
+            For Each w As String In Warnings
+                sb.AppendLine("  • " & w)
+            Next
+        End If
+
+        Return sb.ToString()
+    End Function
+
+End Class

@@ -1,0 +1,1879 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Metal Bar Grating Addin - VB.NET
+'
+' HmgPanelControl: UserControl hosted inside an Inventor DockableWindow.
+' Provides a native docked panel experience similar to iLogic or
+' Design Accelerator panels.
+'
+' The panel supports multiple display modes:
+'   Idle          — default state showing add-in info
+'   ParameterInput— grating parameter controls
+'   Progress      — generation progress bar
+'   Summary       — generation results
+'
+' The panel uses vertical stacking layout (DockStyle.Top) so it
+' resizes properly when the dockable window is resized by the user.
+'
+' Signaling: when the user clicks OK or Cancel during ParameterInput
+' mode, the IsActionTaken flag is set.  The caller polls this flag
+' via a DoEvents loop.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Drawing
+Imports System.Runtime.InteropServices
+Imports System.Windows.Forms
+
+''' <summary>
+''' UserControl that lives inside an Inventor DockableWindow.
+''' Shows context-sensitive content for the HMG workflow.
+''' </summary>
+Public Class HmgPanelControl
+    Inherits UserControl
+
+    ' ==================================================================
+    '  Panel modes and actions
+    ' ==================================================================
+
+    ''' <summary>Display mode of the panel.</summary>
+    Public Enum PanelMode
+        ''' <summary>Default idle state — shows add-in info.</summary>
+        Idle = 0
+        ''' <summary>Parameter input — shows grating parameter controls.</summary>
+        ParameterInput = 2
+        ''' <summary>Progress — shows generation progress bar.</summary>
+        Progress = 3
+        ''' <summary>Summary — shows generation results.</summary>
+        Summary = 4
+    End Enum
+
+    ''' <summary>Action taken by the user in SketchEdit mode.</summary>
+    Public Enum UserAction
+        ''' <summary>No action yet.</summary>
+        None = 0
+        ''' <summary>User clicked Done — finished drawing.</summary>
+        Done = 1
+        ''' <summary>User clicked Cancel.</summary>
+        Cancel = 2
+    End Enum
+
+    ' ==================================================================
+    '  State
+    ' ==================================================================
+
+    Private _mode As PanelMode = PanelMode.Idle
+    Private _action As UserAction = UserAction.None
+    Private _actionTaken As Boolean = False
+    Private _paramDefaults As GratingParameters
+    Private _resultParams As GratingParameters
+
+    ' ==================================================================
+    '  Dark theme colors (match Inventor 2024 dark browser background)
+    ' ==================================================================
+    Private Shared ReadOnly _clrBack As Color = Color.FromArgb(50, 53, 58)
+    Private Shared ReadOnly _clrText As Color = Color.FromArgb(241, 241, 241)
+    Private Shared ReadOnly _clrDimText As Color = Color.FromArgb(160, 160, 160)
+    Private Shared ReadOnly _clrAccent As Color = Color.FromArgb(0, 122, 204)
+    Private Shared ReadOnly _clrControlBack As Color = Color.FromArgb(60, 63, 68)
+    Private Shared ReadOnly _clrControlBorder As Color = Color.FromArgb(72, 75, 80)
+    Private Shared ReadOnly _clrToggleActive As Color = Color.FromArgb(0, 122, 204)
+    Private Shared ReadOnly _clrToggleInactive As Color = Color.FromArgb(60, 63, 68)
+    Private Shared ReadOnly _clrDisabledText As Color = Color.FromArgb(100, 100, 100)
+    Private Shared ReadOnly _clrDisabledBack As Color = Color.FromArgb(45, 48, 52)
+
+    ' ==================================================================
+    '  Controls
+    ' ==================================================================
+
+    ' Content panel — manually positioned and scrolled.
+    ' Native scrollbars are avoided because they leave after-image
+    ' artifacts inside Inventor DockableWindows.
+    Private _contentPanel As Panel
+    Private _contentHeight As Integer = 0
+
+    ' Idle mode controls
+    Private _lblIdleTitle As Label
+    Private _lblIdleInfo As Label
+    Private _picIdleInfo As PictureBox
+
+    ' Parameter input mode controls
+    Private _cboSpanDirection As ComboBox
+    Private _txtBarDepth As TextBox
+    Private _txtBarWidth As TextBox
+    Private _cboOnCenterSpacing As ComboBox
+    Private _cboCrossBarType As ComboBox
+    Private _cboCrossBarOC As ComboBox
+    Private _txtFirstCrossBarOffset As TextBox
+    Private _btnPlain As Button
+    Private _btnSerrated As Button
+    Private _btnBanded As Button
+    Private _btnOpenEnded As Button
+    Private _txtOutputFolder As TextBox
+    Private _btnBrowseFolder As Button
+    Private _txtNamingPrefix As TextBox
+    Private _btnParamOK As Button
+    Private _btnParamCancel As Button
+
+    ' Notch dimension override controls
+    Private _txtNotchSlotWidth As TextBox
+    Private _txtNotchSlotDepth As TextBox
+    Private _txtNotchStraightDepth As TextBox
+    Private _txtNotchBottomRadius As TextBox
+
+    ' Notch section collapsible state and serration toggle
+    Private _isSerrationActive As Boolean = False
+    Private _isBandingOpen As Boolean = False
+    Private _notchSectionCollapsed As Boolean = True
+
+    ' Serration dimension override controls
+    Private _lblSerrChord As Label
+    Private _txtSerrChord As TextBox
+    Private _lblSerrFlatWidth As Label
+    Private _txtSerrFlatWidth As TextBox
+    Private _lblSerrArcRadius As Label
+    Private _txtSerrArcRadius As TextBox
+    Private _lblSerrMargin As Label
+    Private _txtSerrMargin As TextBox
+
+    ' Progress mode controls
+    Private _lblProgressTitle As Label
+    Private _lblProgressStep As Label
+    Private _progressBar As ProgressBar
+
+    ' Summary mode controls
+    Private _lblSummaryTitle As Label
+    Private _lblSummaryBody As Label
+
+    ' Custom scrollbar (avoids native scrollbar after-image artifacts)
+    Private _scrollTrack As Panel
+    Private _scrollThumb As Panel
+    Private _isDraggingThumb As Boolean = False
+    Private _thumbDragStartY As Integer
+    Private _thumbDragStartTop As Integer
+
+    ' Sticky action button panel (outside scrollable content)
+    Private _buttonPanel As DoubleBufferedPanel
+    Private Const ButtonPanelHeight As Integer = 46
+
+    ' Bearing Bar O.C. Spacing — spec-defined values
+    Private Shared ReadOnly _ocSpacingDisplay() As String = {
+        "7/16""", "11/16""", "15/16""", "1-3/16""", "1-3/8""", "1-7/8""", "2-3/8"""
+    }
+    Private Shared ReadOnly _ocSpacingValues() As Double = {
+        0.4375, 0.6875, 0.9375, 1.1875, 1.375, 1.875, 2.375
+    }
+
+    ' ==================================================================
+    '  Public properties
+    ' ==================================================================
+
+    ''' <summary>The last action taken by the user.</summary>
+    Public ReadOnly Property LastAction As UserAction
+        Get
+            Return _action
+        End Get
+    End Property
+
+    ''' <summary>True once the user clicks Done or Cancel.</summary>
+    Public ReadOnly Property IsActionTaken As Boolean
+        Get
+            Return _actionTaken
+        End Get
+    End Property
+
+    ''' <summary>Current display mode.</summary>
+    Public ReadOnly Property Mode As PanelMode
+        Get
+            Return _mode
+        End Get
+    End Property
+
+    ''' <summary>Validated parameters from the last ParameterInput accept.</summary>
+    Public ReadOnly Property ResultParameters As GratingParameters
+        Get
+            Return _resultParams
+        End Get
+    End Property
+
+    ' ==================================================================
+    '  Constructor
+    ' ==================================================================
+
+    Public Sub New()
+        Me.DoubleBuffered = True
+        Me.SetStyle(
+            ControlStyles.AllPaintingInWmPaint Or
+            ControlStyles.OptimizedDoubleBuffer Or
+            ControlStyles.ResizeRedraw Or
+            ControlStyles.UserPaint, True)
+        Me.UpdateStyles()
+
+        Me.Font = New Font("Segoe UI", 9.0F, FontStyle.Regular)
+
+        BuildLayout()
+        ShowIdleContent()
+
+        ' Install a low-level mouse hook so wheel scrolling works
+        ' even when Inventor's message loop is active (no DoEvents).
+        InstallMouseHook()
+    End Sub
+
+    Protected Overrides Sub Dispose(disposing As Boolean)
+        If disposing Then
+            UninstallMouseHook()
+        End If
+        MyBase.Dispose(disposing)
+    End Sub
+
+    Protected Overrides ReadOnly Property CreateParams As CreateParams
+        Get
+            Dim cp As CreateParams = MyBase.CreateParams
+            ' NOTE: WS_EX_COMPOSITED (&H2000000) was removed because it
+            ' caches the rendered back-buffer and causes ghost/overlay
+            ' artifacts when the DockableWindow is resized.  DoubleBuffered
+            ' + DoubleBufferedPanel provide sufficient flicker reduction.
+            Return cp
+        End Get
+    End Property
+
+    ' ==================================================================
+    '  Public mode-switching methods
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Returns the panel to idle mode. Resets action state.
+    ''' </summary>
+    Public Sub ResetToIdle()
+        _mode = PanelMode.Idle
+        _action = UserAction.None
+        _actionTaken = False
+        ShowIdleContent()
+    End Sub
+
+    ''' <summary>
+    ''' Switches the panel to parameter input mode pre-populated with
+    ''' the given defaults.  Resets the action state so the caller can
+    ''' poll <see cref="IsActionTaken"/> and read <see cref="ResultParameters"/>.
+    ''' </summary>
+    Public Sub EnterParameterInputMode(defaults As GratingParameters)
+        _paramDefaults = defaults
+        _resultParams = Nothing
+        _action = UserAction.None
+        _actionTaken = False
+        _mode = PanelMode.ParameterInput
+        ShowParameterInputContent()
+    End Sub
+
+    ''' <summary>
+    ''' Switches the panel to progress mode showing the generation
+    ''' progress bar.  Call <see cref="UpdateProgress"/> to advance.
+    ''' </summary>
+    Public Sub EnterProgressMode(Optional title As String = "Generating Grating...")
+        _action = UserAction.None
+        _actionTaken = False
+        _mode = PanelMode.Progress
+        ShowProgressContent(title)
+    End Sub
+
+    ''' <summary>
+    ''' Switches the panel to summary mode showing the generation
+    ''' result summary text.
+    ''' </summary>
+    Public Sub EnterSummaryMode(summaryText As String)
+        _action = UserAction.None
+        _actionTaken = False
+        _mode = PanelMode.Summary
+        ShowSummaryContent(summaryText)
+    End Sub
+
+    ''' <summary>
+    ''' Updates the progress bar value, step text, and optional percentage.
+    ''' Safe to call from the UI thread (inside a DoEvents loop).
+    ''' </summary>
+    Public Sub UpdateProgress(percent As Integer, stepText As String)
+        If _mode <> PanelMode.Progress Then Return
+        If _progressBar IsNot Nothing Then
+            _progressBar.Value = Math.Min(Math.Max(percent, 0), 100)
+        End If
+        If _lblProgressStep IsNot Nothing Then
+            _lblProgressStep.Text = stepText
+        End If
+    End Sub
+
+    ' ==================================================================
+    '  Layout construction
+    ' ==================================================================
+
+    Private Sub BuildLayout()
+        Me.BackColor = _clrBack
+        Me.ForeColor = _clrText
+        Me.Dock = DockStyle.Fill
+        Me.AutoScroll = False
+        Me.Padding = New Padding(0)
+
+        ' Content panel — NOT docked, NOT AutoScroll.
+        ' Positioned and scrolled manually to avoid native scrollbar
+        ' after-image artifacts inside Inventor DockableWindows.
+        _contentPanel = New DoubleBufferedPanel()
+        _contentPanel.Location = New Point(0, 0)
+        _contentPanel.Size = New Size(Me.ClientSize.Width, Me.ClientSize.Height)
+        _contentPanel.AutoScroll = False
+        _contentPanel.Padding = New Padding(10, 10, 10, 10)
+        _contentPanel.BackColor = _clrBack
+        Me.Controls.Add(_contentPanel)
+
+        ' Sticky button panel at bottom (outside scrollable content)
+        _buttonPanel = New DoubleBufferedPanel()
+        _buttonPanel.Height = ButtonPanelHeight
+        _buttonPanel.Dock = DockStyle.Bottom
+        _buttonPanel.BackColor = _clrBack
+        _buttonPanel.Visible = False
+        Me.Controls.Add(_buttonPanel)
+        _buttonPanel.BringToFront()
+
+        ' Custom scrollbar — thin track + draggable thumb.
+        ' Native scrollbars leave after-image artifacts inside
+        ' Inventor DockableWindows, so we draw our own.
+        _scrollTrack = New DoubleBufferedPanel()
+        _scrollTrack.Width = 14
+        _scrollTrack.BackColor = Color.FromArgb(40, 43, 48)
+        _scrollTrack.Visible = False
+        Me.Controls.Add(_scrollTrack)
+        _scrollTrack.BringToFront()
+
+        _scrollThumb = New DoubleBufferedPanel()
+        _scrollThumb.Width = 10
+        _scrollThumb.Left = 2
+        _scrollThumb.BackColor = Color.FromArgb(100, 103, 108)
+        _scrollThumb.Cursor = Cursors.SizeNS
+        _scrollTrack.Controls.Add(_scrollThumb)
+
+        AddHandler _scrollThumb.MouseDown, AddressOf OnThumbMouseDown
+        AddHandler _scrollThumb.MouseMove, AddressOf OnThumbMouseMove
+        AddHandler _scrollThumb.MouseUp, AddressOf OnThumbMouseUp
+        AddHandler _scrollTrack.MouseClick, AddressOf OnTrackMouseClick
+
+        ' Sync width and clamp scroll when the DockableWindow is resized
+        AddHandler Me.Resize, AddressOf OnContainerResize
+
+        ' --- Idle mode controls ---
+        _lblIdleTitle = New Label()
+        _lblIdleTitle.Text = "Metal Bar Grating"
+        _lblIdleTitle.Font = New Font(Me.Font.FontFamily, 10.0F, FontStyle.Bold)
+        _lblIdleTitle.AutoSize = True
+        _lblIdleTitle.ForeColor = _clrText
+        _lblIdleTitle.Margin = New Padding(0, 0, 0, 8)
+
+        _lblIdleInfo = New Label()
+        _lblIdleInfo.Text =
+            "Click ""Create Grating"" on the ribbon to begin." & vbCrLf & vbCrLf &
+            "This panel will show workflow instructions " &
+            "when a grating operation is in progress."
+        _lblIdleInfo.AutoSize = False
+        _lblIdleInfo.MaximumSize = New Size(600, 0)
+        _lblIdleInfo.AutoSize = True
+        _lblIdleInfo.ForeColor = _clrDimText
+
+        ' Product info image — loaded from embedded resource
+        _picIdleInfo = New PictureBox()
+        _picIdleInfo.SizeMode = PictureBoxSizeMode.Zoom
+        _picIdleInfo.BackColor = _clrBack
+        _picIdleInfo.Margin = New Padding(0, 12, 0, 0)
+        Try
+            Dim asm As System.Reflection.Assembly = System.Reflection.Assembly.GetExecutingAssembly()
+            Dim resName As String = Nothing
+            For Each n As String In asm.GetManifestResourceNames()
+                If n.EndsWith("BAR-GRATING-INFO-768x552.jpg", StringComparison.OrdinalIgnoreCase) Then
+                    resName = n
+                    Exit For
+                End If
+            Next
+            If resName IsNot Nothing Then
+                Using stream = asm.GetManifestResourceStream(resName)
+                    _picIdleInfo.Image = New Bitmap(stream)
+                End Using
+            End If
+        Catch
+        End Try
+
+        ' --- Progress mode controls ---
+        _lblProgressTitle = New Label()
+        _lblProgressTitle.Text = "Generating Grating..."
+        _lblProgressTitle.Font = New Font(Me.Font.FontFamily, 10.0F, FontStyle.Bold)
+        _lblProgressTitle.AutoSize = True
+        _lblProgressTitle.ForeColor = _clrText
+
+        _lblProgressStep = New Label()
+        _lblProgressStep.Text = "Preparing..."
+        _lblProgressStep.AutoSize = True
+        _lblProgressStep.ForeColor = _clrDimText
+
+        _progressBar = New ProgressBar()
+        _progressBar.Minimum = 0
+        _progressBar.Maximum = 100
+        _progressBar.Value = 0
+        _progressBar.Style = ProgressBarStyle.Continuous
+        _progressBar.Size = New Size(200, 22)
+    End Sub
+
+    ' ==================================================================
+    '  Content display helpers
+    ' ==================================================================
+
+    Private Sub ShowIdleContent()
+        If _buttonPanel IsNot Nothing Then _buttonPanel.Visible = False
+        _contentPanel.SuspendLayout()
+        _contentPanel.Controls.Clear()
+
+        Dim x As Integer = 24
+        Dim y As Integer = 14
+        Dim rightPad As Integer = 14
+        Dim panelW As Integer = Math.Max(Me.ClientSize.Width, _contentPanel.ClientSize.Width)
+        Dim availW As Integer = Math.Max(100, panelW - x - rightPad)
+
+        ' Title
+        _lblIdleTitle.Location = New Point(x, y)
+        _contentPanel.Controls.Add(_lblIdleTitle)
+        y += _lblIdleTitle.PreferredHeight + 10
+
+        ' Info text
+        _lblIdleInfo.MaximumSize = New Size(availW, 0)
+        _lblIdleInfo.Location = New Point(x, y)
+        _contentPanel.Controls.Add(_lblIdleInfo)
+        y += _lblIdleInfo.PreferredHeight + 18
+
+        ' Product info image — full width, edge-to-edge, preserving aspect ratio
+        If _picIdleInfo IsNot Nothing AndAlso _picIdleInfo.Image IsNot Nothing Then
+            Dim img As Image = _picIdleInfo.Image
+            Dim aspectRatio As Double = CDbl(img.Height) / CDbl(img.Width)
+            Dim imgW As Integer = panelW
+            Dim imgH As Integer = CInt(imgW * aspectRatio)
+            _picIdleInfo.Location = New Point(0, y)
+            _picIdleInfo.Size = New Size(imgW, imgH)
+            _picIdleInfo.Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+            _contentPanel.Controls.Add(_picIdleInfo)
+            y += imgH + 20
+        End If
+
+        ' --- Branding footer ---
+        Dim brandSep As New Label()
+        brandSep.AutoSize = False
+        brandSep.Height = 1
+        brandSep.Width = availW
+        brandSep.Location = New Point(x, y)
+        brandSep.BackColor = _clrControlBorder
+        brandSep.Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+        _contentPanel.Controls.Add(brandSep)
+        y += 14
+
+        Dim lblCompany As New Label()
+        lblCompany.Text = "GRATING PACIFIC"
+        lblCompany.Font = New Font(Me.Font.FontFamily, 9.0F, FontStyle.Bold)
+        lblCompany.AutoSize = True
+        lblCompany.Location = New Point(x, y)
+        lblCompany.ForeColor = _clrText
+        _contentPanel.Controls.Add(lblCompany)
+        y += lblCompany.PreferredHeight + 4
+
+        Dim lblTagline As New Label()
+        lblTagline.Text = "Service. Quality. Reliability."
+        lblTagline.Font = New Font(Me.Font.FontFamily, 8.0F, FontStyle.Italic)
+        lblTagline.AutoSize = True
+        lblTagline.Location = New Point(x, y)
+        lblTagline.ForeColor = _clrDimText
+        _contentPanel.Controls.Add(lblTagline)
+        y += lblTagline.PreferredHeight + 8
+
+        Dim lblUrl As New Label()
+        lblUrl.Text = "gratingpacific.com"
+        lblUrl.Font = New Font(Me.Font.FontFamily, 8.0F, FontStyle.Regular)
+        lblUrl.AutoSize = True
+        lblUrl.Location = New Point(x, y)
+        lblUrl.ForeColor = _clrAccent
+        lblUrl.Cursor = Cursors.Hand
+        AddHandler lblUrl.Click, Sub()
+                                     Try
+                                         System.Diagnostics.Process.Start("https://gratingpacific.com/")
+                                     Catch
+                                     End Try
+                                 End Sub
+        _contentPanel.Controls.Add(lblUrl)
+        y += lblUrl.PreferredHeight + 6
+
+        Dim lblCopyright As New Label()
+        lblCopyright.Text = ChrW(&HA9) & " " & DateTime.Now.Year.ToString() & " Grating Pacific. All Rights Reserved."
+        lblCopyright.Font = New Font(Me.Font.FontFamily, 7.5F, FontStyle.Regular)
+        lblCopyright.AutoSize = True
+        lblCopyright.Location = New Point(x, y)
+        lblCopyright.ForeColor = Color.FromArgb(110, 110, 110)
+        _contentPanel.Controls.Add(lblCopyright)
+        y += lblCopyright.PreferredHeight + 14
+
+        ' Enable scrolling if content exceeds visible area
+        _contentHeight = y + 10
+        _contentPanel.Height = Math.Max(_contentHeight, Me.ClientSize.Height)
+        _contentPanel.Top = 0
+        _contentPanel.ResumeLayout(True)
+        UpdateScrollbar()
+    End Sub
+
+    Private Sub ShowProgressContent(title As String)
+        If _buttonPanel IsNot Nothing Then _buttonPanel.Visible = False
+        _contentPanel.SuspendLayout()
+        _contentPanel.Controls.Clear()
+
+        Dim x As Integer = 24
+        Dim y As Integer = 14
+        Dim anc As AnchorStyles = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+        Dim cw As Integer = Math.Max(100, _contentPanel.ClientSize.Width - 38)
+
+        _lblProgressTitle.Text = title
+        _lblProgressTitle.Location = New Point(x, y)
+        _contentPanel.Controls.Add(_lblProgressTitle)
+        y += 32
+
+        _progressBar.Location = New Point(x, y)
+        _progressBar.Size = New Size(cw, 22)
+        _progressBar.Anchor = anc
+        _progressBar.Value = 0
+        _contentPanel.Controls.Add(_progressBar)
+        y += 34
+
+        _lblProgressStep.Text = "Preparing..."
+        _lblProgressStep.Location = New Point(x, y)
+        _lblProgressStep.MaximumSize = New Size(Math.Max(100, cw), 0)
+        _contentPanel.Controls.Add(_lblProgressStep)
+
+        _contentPanel.ResumeLayout(True)
+
+        ' No scrolling needed
+        _contentHeight = Me.ClientSize.Height
+        _contentPanel.Height = _contentHeight
+        _contentPanel.Top = 0
+        UpdateScrollbar()
+    End Sub
+
+    Private Sub ShowSummaryContent(summaryText As String)
+        If _buttonPanel IsNot Nothing Then _buttonPanel.Visible = False
+        _contentPanel.SuspendLayout()
+        _contentPanel.Controls.Clear()
+
+        Dim x As Integer = 24
+        Dim y As Integer = 8
+        Dim rightPad As Integer = 14
+        Dim availW As Integer = _contentPanel.ClientSize.Width - x - rightPad
+        Dim cw As Integer = If(availW >= 120, availW, 190)
+        Dim anc As AnchorStyles = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+        Dim valIndent As Integer = 16
+
+        ' --- Accent title ---
+        _lblSummaryTitle = New Label()
+        _lblSummaryTitle.Text = "GENERATION COMPLETE"
+        _lblSummaryTitle.Font = New Font(Me.Font.FontFamily, 10.0F, FontStyle.Bold)
+        _lblSummaryTitle.AutoSize = True
+        _lblSummaryTitle.Location = New Point(x, y)
+        _lblSummaryTitle.ForeColor = _clrAccent
+        _contentPanel.Controls.Add(_lblSummaryTitle)
+        y += _lblSummaryTitle.PreferredHeight + 6
+
+        Dim titleSep As New Label()
+        titleSep.AutoSize = False
+        titleSep.Height = 2
+        titleSep.Width = cw
+        titleSep.Location = New Point(x, y)
+        titleSep.BackColor = _clrAccent
+        titleSep.Anchor = anc
+        _contentPanel.Controls.Add(titleSep)
+        y += 14
+
+        ' Parse the summary text into labeled sections
+        Dim lines() As String = summaryText.Split({vbCrLf, vbLf}, StringSplitOptions.None)
+
+        For Each line As String In lines
+            Dim trimmed As String = line.TrimEnd()
+
+            ' Detect section headers (lines containing only ——— or ===)
+            If trimmed.Length > 3 AndAlso
+               (trimmed.Replace("—", "").Trim().Length = 0 OrElse
+                trimmed.Replace("=", "").Trim().Length = 0) Then
+                ' Skip — we already draw separators via AddSectionHeader
+                Continue For
+            End If
+
+            ' Empty lines — add vertical spacing
+            If String.IsNullOrWhiteSpace(trimmed) Then
+                y += 10
+                Continue For
+            End If
+
+            ' Section title lines (no colon, not indented, not a bullet)
+            Dim isSectionTitle As Boolean =
+                Not trimmed.StartsWith(" ") AndAlso
+                Not trimmed.StartsWith("•") AndAlso
+                Not trimmed.Contains(":")
+
+            ' Key-value lines (contains " : ")
+            Dim colonPos As Integer = trimmed.IndexOf(" : ")
+            If colonPos < 0 Then colonPos = trimmed.IndexOf(": ")
+
+            If isSectionTitle Then
+                ' Section heading with chevron and separator
+                AddSectionHeader(_contentPanel, trimmed, x, y, cw)
+            ElseIf colonPos > 0 Then
+                ' Key : Value pair — key dim above, value bright below
+                Dim key As String = trimmed.Substring(0, colonPos).Trim()
+                Dim val As String = trimmed.Substring(colonPos + 1).Trim().TrimStart(":"c).Trim()
+
+                Dim keyLbl As New Label()
+                keyLbl.Text = key
+                keyLbl.Font = New Font(Me.Font, FontStyle.Regular)
+                keyLbl.AutoSize = True
+                keyLbl.Location = New Point(x, y)
+                keyLbl.ForeColor = _clrDimText
+                _contentPanel.Controls.Add(keyLbl)
+                y += keyLbl.PreferredHeight + 2
+
+                Dim valLbl As New Label()
+                valLbl.Text = val
+                valLbl.AutoSize = False
+                valLbl.MaximumSize = New Size(Math.Max(60, cw - valIndent), 0)
+                valLbl.AutoSize = True
+                valLbl.Location = New Point(x + valIndent, y)
+                valLbl.ForeColor = _clrText
+                _contentPanel.Controls.Add(valLbl)
+                y += valLbl.PreferredHeight + 8
+            Else
+                ' Regular text (bullets, warnings, file names)
+                Dim txtLbl As New Label()
+                txtLbl.Text = trimmed
+                txtLbl.AutoSize = False
+                txtLbl.MaximumSize = New Size(Math.Max(60, cw), 0)
+                txtLbl.AutoSize = True
+                txtLbl.Location = New Point(x, y)
+                txtLbl.ForeColor = If(trimmed.StartsWith("•") OrElse
+                                      trimmed.TrimStart().StartsWith("•"),
+                                      _clrDimText, _clrText)
+                _contentPanel.Controls.Add(txtLbl)
+                y += txtLbl.PreferredHeight + 6
+            End If
+        Next
+
+        y += 10
+
+        ' Set content height for manual scrolling
+        _contentHeight = y + 10
+        _contentPanel.Height = Math.Max(_contentHeight, Me.ClientSize.Height)
+        _contentPanel.Top = 0
+        _contentPanel.ResumeLayout(True)
+        UpdateScrollbar()
+    End Sub
+
+    Private Sub ShowParameterInputContent()
+        _contentPanel.SuspendLayout()
+        _contentPanel.Controls.Clear()
+
+        ' Show sticky button panel
+        _buttonPanel.Visible = True
+        _buttonPanel.Controls.Clear()
+
+        Dim x As Integer = 24
+        Dim y As Integer = 8
+        Dim rightPad As Integer = 14
+        Dim availW As Integer = _contentPanel.ClientSize.Width - x - rightPad
+        Dim cw As Integer = If(availW >= 120, availW, 190)
+        Dim anc As AnchorStyles = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+
+        ' --- Title ---
+        Dim titleLbl As New Label()
+        titleLbl.Text = "METAL BAR GRATING"
+        titleLbl.Font = New Font(Me.Font.FontFamily, 10.0F, FontStyle.Bold)
+        titleLbl.AutoSize = True
+        titleLbl.Location = New Point(x, y)
+        titleLbl.ForeColor = _clrAccent
+        _contentPanel.Controls.Add(titleLbl)
+        y += titleLbl.PreferredHeight + 6
+
+        Dim titleSep As New Label()
+        titleSep.AutoSize = False
+        titleSep.Height = 2
+        titleSep.Width = cw
+        titleSep.Location = New Point(x, y)
+        titleSep.BackColor = _clrAccent
+        titleSep.Anchor = anc
+        _contentPanel.Controls.Add(titleSep)
+        y += 18
+
+        ' --- Naming Prefix (first field) ---
+        AddFieldLabel(_contentPanel, "Naming Prefix:", x, y)
+        y += 26
+        _txtNamingPrefix = New TextBox()
+        _txtNamingPrefix.Location = New Point(x, y)
+        _txtNamingPrefix.Size = New Size(cw, 22)
+        _txtNamingPrefix.Anchor = anc
+        StyleTextBox(_txtNamingPrefix)
+        _contentPanel.Controls.Add(_txtNamingPrefix)
+        y += 44
+
+        ' ====== Bearing Bars ======
+        AddSectionHeader(_contentPanel, "Bearing Bars", x, y, cw)
+
+        AddFieldLabel(_contentPanel, "Span Direction:", x, y)
+        y += 26
+        _cboSpanDirection = New ComboBox()
+        _cboSpanDirection.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboSpanDirection.Location = New Point(x, y)
+        _cboSpanDirection.Size = New Size(cw, 22)
+        _cboSpanDirection.Anchor = anc
+        StyleComboBox(_cboSpanDirection)
+        _cboSpanDirection.Items.AddRange(New Object() {"Along X", "Along Y"})
+        _contentPanel.Controls.Add(_cboSpanDirection)
+        y += 40
+
+        AddFieldLabel(_contentPanel, "Bar Depth (in):", x, y)
+        y += 26
+        _txtBarDepth = New TextBox()
+        _txtBarDepth.Location = New Point(x, y)
+        _txtBarDepth.Size = New Size(cw, 22)
+        _txtBarDepth.Anchor = anc
+        StyleTextBox(_txtBarDepth)
+        _contentPanel.Controls.Add(_txtBarDepth)
+        y += 40
+
+        AddFieldLabel(_contentPanel, "Bar Width (in):", x, y)
+        y += 26
+        _txtBarWidth = New TextBox()
+        _txtBarWidth.Location = New Point(x, y)
+        _txtBarWidth.Size = New Size(cw, 22)
+        _txtBarWidth.Anchor = anc
+        StyleTextBox(_txtBarWidth)
+        _contentPanel.Controls.Add(_txtBarWidth)
+        y += 40
+
+        AddFieldLabel(_contentPanel, "Bar O.C. Spacing:", x, y)
+        y += 26
+        _cboOnCenterSpacing = New ComboBox()
+        _cboOnCenterSpacing.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboOnCenterSpacing.Location = New Point(x, y)
+        _cboOnCenterSpacing.Size = New Size(cw, 22)
+        _cboOnCenterSpacing.Anchor = anc
+        StyleComboBox(_cboOnCenterSpacing)
+        _cboOnCenterSpacing.Items.AddRange(_ocSpacingDisplay)
+        _contentPanel.Controls.Add(_cboOnCenterSpacing)
+        y += 44
+
+        ' ====== Cross Bars ======
+        AddSectionHeader(_contentPanel, "Cross Bars", x, y, cw)
+
+        AddFieldLabel(_contentPanel, "Cross Bar Type:", x, y)
+        y += 26
+        _cboCrossBarType = New ComboBox()
+        _cboCrossBarType.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboCrossBarType.Location = New Point(x, y)
+        _cboCrossBarType.Size = New Size(cw, 22)
+        _cboCrossBarType.Anchor = anc
+        StyleComboBox(_cboCrossBarType)
+        _cboCrossBarType.Items.AddRange(CrossBarTypeHelper.DisplayNames)
+        _contentPanel.Controls.Add(_cboCrossBarType)
+        y += 40
+
+        AddFieldLabel(_contentPanel, "Cross Bar O.C. (in):", x, y)
+        y += 26
+        _cboCrossBarOC = New ComboBox()
+        _cboCrossBarOC.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboCrossBarOC.Location = New Point(x, y)
+        _cboCrossBarOC.Size = New Size(cw, 22)
+        _cboCrossBarOC.Anchor = anc
+        StyleComboBox(_cboCrossBarOC)
+        _cboCrossBarOC.Items.AddRange(New Object() {"2", "4"})
+        _contentPanel.Controls.Add(_cboCrossBarOC)
+        y += 40
+
+        AddFieldLabel(_contentPanel, "First Cross Bar Offset (in):", x, y)
+        y += 26
+        _txtFirstCrossBarOffset = New TextBox()
+        _txtFirstCrossBarOffset.Location = New Point(x, y)
+        _txtFirstCrossBarOffset.Size = New Size(cw, 22)
+        _txtFirstCrossBarOffset.Anchor = anc
+        StyleTextBox(_txtFirstCrossBarOffset)
+        _contentPanel.Controls.Add(_txtFirstCrossBarOffset)
+        y += 44
+
+        ' ====== Surface & Banding ======
+        AddSectionHeader(_contentPanel, "Surface && Banding", x, y, cw)
+
+        AddFieldLabel(_contentPanel, "Surface Profile:", x, y)
+        y += 26
+        Dim btnW As Integer = CInt(Math.Floor((cw - 4) / 2))
+        _btnPlain = New Button()
+        _btnPlain.Text = "Plain"
+        _btnPlain.Font = New Font(Me.Font, FontStyle.Bold)
+        _btnPlain.Size = New Size(btnW, 32)
+        _btnPlain.Location = New Point(x, y)
+        _btnPlain.FlatStyle = FlatStyle.Flat
+        _btnPlain.FlatAppearance.BorderColor = _clrControlBorder
+        _btnPlain.Cursor = Cursors.Hand
+        AddHandler _btnPlain.Click, AddressOf OnPlainClick
+        _contentPanel.Controls.Add(_btnPlain)
+
+        _btnSerrated = New Button()
+        _btnSerrated.Text = "Serrated"
+        _btnSerrated.Font = New Font(Me.Font, FontStyle.Bold)
+        _btnSerrated.Size = New Size(btnW, 32)
+        _btnSerrated.Location = New Point(x + btnW + 4, y)
+        _btnSerrated.FlatStyle = FlatStyle.Flat
+        _btnSerrated.FlatAppearance.BorderColor = _clrControlBorder
+        _btnSerrated.Cursor = Cursors.Hand
+        AddHandler _btnSerrated.Click, AddressOf OnSerratedClick
+        _contentPanel.Controls.Add(_btnSerrated)
+
+        ApplySurfaceToggleStyle()
+        y += 44
+
+        AddFieldLabel(_contentPanel, "Banding:", x, y)
+        y += 26
+        Dim bandBtnW As Integer = CInt(Math.Floor((cw - 4) / 2))
+        _btnBanded = New Button()
+        _btnBanded.Text = "Banded"
+        _btnBanded.Font = New Font(Me.Font, FontStyle.Bold)
+        _btnBanded.Size = New Size(bandBtnW, 32)
+        _btnBanded.Location = New Point(x, y)
+        _btnBanded.FlatStyle = FlatStyle.Flat
+        _btnBanded.FlatAppearance.BorderColor = _clrControlBorder
+        _btnBanded.Cursor = Cursors.Hand
+        AddHandler _btnBanded.Click, AddressOf OnBandedClick
+        _contentPanel.Controls.Add(_btnBanded)
+
+        _btnOpenEnded = New Button()
+        _btnOpenEnded.Text = "Open Ended"
+        _btnOpenEnded.Font = New Font(Me.Font, FontStyle.Bold)
+        _btnOpenEnded.Size = New Size(bandBtnW, 32)
+        _btnOpenEnded.Location = New Point(x + bandBtnW + 4, y)
+        _btnOpenEnded.FlatStyle = FlatStyle.Flat
+        _btnOpenEnded.FlatAppearance.BorderColor = _clrControlBorder
+        _btnOpenEnded.Cursor = Cursors.Hand
+        AddHandler _btnOpenEnded.Click, AddressOf OnOpenEndedClick
+        _contentPanel.Controls.Add(_btnOpenEnded)
+
+        ApplyBandingToggleStyle()
+        y += 44
+
+        ' ====== Notch Overrides (Collapsible) ======
+        AddCollapsibleSectionHeader(_contentPanel, "Notch Overrides", "Advanced", x, y, cw, AddressOf OnNotchSectionToggle)
+
+        If Not _notchSectionCollapsed Then
+            Dim notchHint As New Label()
+            notchHint.Text = "Leave blank to use defaults for the selected cross bar type."
+            notchHint.AutoSize = False
+            notchHint.MaximumSize = New Size(Math.Max(100, cw), 0)
+            notchHint.AutoSize = True
+            notchHint.Location = New Point(x, y)
+            notchHint.ForeColor = _clrDimText
+            _contentPanel.Controls.Add(notchHint)
+            y += notchHint.PreferredHeight + 14
+
+            AddFieldLabel(_contentPanel, "Slot Width (in):", x, y)
+            y += 26
+            _txtNotchSlotWidth = New TextBox()
+            _txtNotchSlotWidth.Location = New Point(x, y)
+            _txtNotchSlotWidth.Size = New Size(cw, 22)
+            _txtNotchSlotWidth.Anchor = anc
+            StyleTextBox(_txtNotchSlotWidth)
+            _contentPanel.Controls.Add(_txtNotchSlotWidth)
+            y += 40
+
+            AddFieldLabel(_contentPanel, "Slot Depth (in):", x, y)
+            y += 26
+            _txtNotchSlotDepth = New TextBox()
+            _txtNotchSlotDepth.Location = New Point(x, y)
+            _txtNotchSlotDepth.Size = New Size(cw, 22)
+            _txtNotchSlotDepth.Anchor = anc
+            StyleTextBox(_txtNotchSlotDepth)
+            _contentPanel.Controls.Add(_txtNotchSlotDepth)
+            y += 40
+
+            AddFieldLabel(_contentPanel, "Straight Depth (in):", x, y)
+            y += 26
+            _txtNotchStraightDepth = New TextBox()
+            _txtNotchStraightDepth.Location = New Point(x, y)
+            _txtNotchStraightDepth.Size = New Size(cw, 22)
+            _txtNotchStraightDepth.Anchor = anc
+            StyleTextBox(_txtNotchStraightDepth)
+            _contentPanel.Controls.Add(_txtNotchStraightDepth)
+            y += 40
+
+            AddFieldLabel(_contentPanel, "Bottom Radius (in):", x, y)
+            y += 26
+            _txtNotchBottomRadius = New TextBox()
+            _txtNotchBottomRadius.Location = New Point(x, y)
+            _txtNotchBottomRadius.Size = New Size(cw, 22)
+            _txtNotchBottomRadius.Anchor = anc
+            StyleTextBox(_txtNotchBottomRadius)
+            _contentPanel.Controls.Add(_txtNotchBottomRadius)
+            y += 44
+
+            If _isSerrationActive Then
+                Dim serrLbl As New Label()
+                serrLbl.Text = "Serration Dimensions"
+                serrLbl.Font = New Font(Me.Font, FontStyle.Italic)
+                serrLbl.AutoSize = True
+                serrLbl.Location = New Point(x, y)
+                serrLbl.ForeColor = _clrDimText
+                _contentPanel.Controls.Add(serrLbl)
+                y += 22
+
+                _lblSerrChord = AddFieldLabelEx(_contentPanel, "Scallop Chord (in):", x, y)
+                y += 26
+                _txtSerrChord = New TextBox()
+                _txtSerrChord.Location = New Point(x, y)
+                _txtSerrChord.Size = New Size(cw, 22)
+                _txtSerrChord.Anchor = anc
+                StyleTextBox(_txtSerrChord)
+                _contentPanel.Controls.Add(_txtSerrChord)
+                y += 40
+
+                _lblSerrFlatWidth = AddFieldLabelEx(_contentPanel, "Flat Width (in):", x, y)
+                y += 26
+                _txtSerrFlatWidth = New TextBox()
+                _txtSerrFlatWidth.Location = New Point(x, y)
+                _txtSerrFlatWidth.Size = New Size(cw, 22)
+                _txtSerrFlatWidth.Anchor = anc
+                StyleTextBox(_txtSerrFlatWidth)
+                _contentPanel.Controls.Add(_txtSerrFlatWidth)
+                y += 40
+
+                _lblSerrArcRadius = AddFieldLabelEx(_contentPanel, "Arc Radius (in):", x, y)
+                y += 26
+                _txtSerrArcRadius = New TextBox()
+                _txtSerrArcRadius.Location = New Point(x, y)
+                _txtSerrArcRadius.Size = New Size(cw, 22)
+                _txtSerrArcRadius.Anchor = anc
+                StyleTextBox(_txtSerrArcRadius)
+                _contentPanel.Controls.Add(_txtSerrArcRadius)
+                y += 40
+
+                _lblSerrMargin = AddFieldLabelEx(_contentPanel, "Margin (in):", x, y)
+                y += 26
+                _txtSerrMargin = New TextBox()
+                _txtSerrMargin.Location = New Point(x, y)
+                _txtSerrMargin.Size = New Size(cw, 22)
+                _txtSerrMargin.Anchor = anc
+                StyleTextBox(_txtSerrMargin)
+                _contentPanel.Controls.Add(_txtSerrMargin)
+                y += 44
+            Else
+                _txtSerrChord = Nothing
+                _txtSerrFlatWidth = Nothing
+                _txtSerrArcRadius = Nothing
+                _txtSerrMargin = Nothing
+                _lblSerrChord = Nothing
+                _lblSerrFlatWidth = Nothing
+                _lblSerrArcRadius = Nothing
+                _lblSerrMargin = Nothing
+            End If
+        Else
+            _txtNotchSlotWidth = Nothing
+            _txtNotchSlotDepth = Nothing
+            _txtNotchStraightDepth = Nothing
+            _txtNotchBottomRadius = Nothing
+            _txtSerrChord = Nothing
+            _txtSerrFlatWidth = Nothing
+            _txtSerrArcRadius = Nothing
+            _txtSerrMargin = Nothing
+            _lblSerrChord = Nothing
+            _lblSerrFlatWidth = Nothing
+            _lblSerrArcRadius = Nothing
+            _lblSerrMargin = Nothing
+        End If
+
+        ' ====== Output ======
+        AddSectionHeader(_contentPanel, "Output", x, y, cw)
+
+        AddFieldLabel(_contentPanel, "Output Folder:", x, y)
+        y += 26
+        _txtOutputFolder = New TextBox()
+        _txtOutputFolder.Location = New Point(x, y)
+        _txtOutputFolder.Size = New Size(cw - 32, 22)
+        _txtOutputFolder.Anchor = anc
+        StyleTextBox(_txtOutputFolder)
+        _contentPanel.Controls.Add(_txtOutputFolder)
+        _btnBrowseFolder = New Button()
+        _btnBrowseFolder.Text = "..."
+        _btnBrowseFolder.Location = New Point(x + cw - 28, y - 1)
+        _btnBrowseFolder.Size = New Size(28, 24)
+        _btnBrowseFolder.Anchor = AnchorStyles.Top Or AnchorStyles.Right
+        StyleButton(_btnBrowseFolder)
+        AddHandler _btnBrowseFolder.Click, AddressOf OnBrowseFolderClick
+        _contentPanel.Controls.Add(_btnBrowseFolder)
+        y += 40
+
+        Dim hint As New Label()
+        hint.Text = "Leave Output Folder blank to use the active document folder."
+        hint.AutoSize = False
+        hint.MaximumSize = New Size(Math.Max(100, cw), 0)
+        hint.AutoSize = True
+        hint.Location = New Point(x, y)
+        hint.ForeColor = _clrDimText
+        _contentPanel.Controls.Add(hint)
+        y += 46
+
+        ' --- Sticky Buttons in _buttonPanel (Cancel | Generate) ---
+        Dim btnAreaW As Integer = Math.Max(120, _buttonPanel.ClientSize.Width - x - rightPad)
+        Dim btnGap As Integer = 4
+        Dim halfBtnW As Integer = CInt(Math.Floor((btnAreaW - btnGap) / 2))
+        Dim btnAnc As AnchorStyles = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+
+        _btnParamCancel = New Button()
+        _btnParamCancel.Text = "Cancel"
+        _btnParamCancel.Font = New Font(Me.Font, FontStyle.Bold)
+        _btnParamCancel.Size = New Size(halfBtnW, 32)
+        _btnParamCancel.Location = New Point(x, 8)
+        StyleButton(_btnParamCancel)
+        AddHandler _btnParamCancel.Click, AddressOf OnParamCancelClick
+        _buttonPanel.Controls.Add(_btnParamCancel)
+
+        _btnParamOK = New Button()
+        _btnParamOK.Text = "Generate"
+        _btnParamOK.Font = New Font(Me.Font, FontStyle.Bold)
+        _btnParamOK.Size = New Size(halfBtnW, 32)
+        _btnParamOK.Location = New Point(x + halfBtnW + btnGap, 8)
+        _btnParamOK.FlatStyle = FlatStyle.Flat
+        _btnParamOK.BackColor = _clrAccent
+        _btnParamOK.ForeColor = _clrText
+        _btnParamOK.FlatAppearance.BorderColor = _clrAccent
+        AddHandler _btnParamOK.Click, AddressOf OnParamOKClick
+        _buttonPanel.Controls.Add(_btnParamOK)
+
+        PopulateParamDefaults()
+
+        ' Set content height for manual scrolling
+        Dim scrollAreaH As Integer = Me.ClientSize.Height - ButtonPanelHeight
+        _contentHeight = y + 10
+        _contentPanel.Height = Math.Max(_contentHeight, scrollAreaH)
+        _contentPanel.Top = 0
+        _contentPanel.ResumeLayout(True)
+        UpdateScrollbar()
+    End Sub
+
+    Private Sub PopulateParamDefaults()
+        If _paramDefaults Is Nothing Then Return
+
+        _cboSpanDirection.SelectedIndex = If(_paramDefaults.SpanDirection = SpanDirectionType.AlongY, 1, 0)
+        _txtBarDepth.Text = _paramDefaults.BarDepth.ToString("G")
+        _txtBarWidth.Text = _paramDefaults.BarWidth.ToString("G")
+
+        ' O.C. spacing — find closest match in spec values
+        Dim bestIdx As Integer = 3
+        Dim bestDiff As Double = Double.MaxValue
+        For i As Integer = 0 To _ocSpacingValues.Length - 1
+            Dim d As Double = Math.Abs(_paramDefaults.OnCenterSpacing - _ocSpacingValues(i))
+            If d < bestDiff Then
+                bestDiff = d
+                bestIdx = i
+            End If
+        Next
+        _cboOnCenterSpacing.SelectedIndex = bestIdx
+
+        _txtOutputFolder.Text = If(_paramDefaults.OutputFolder, "")
+        _txtNamingPrefix.Text = If(_paramDefaults.NamingPrefix, "Grating")
+
+        Dim cbIdx As Integer = CInt(_paramDefaults.CrossBar)
+        If cbIdx >= 0 AndAlso cbIdx < _cboCrossBarType.Items.Count Then
+            _cboCrossBarType.SelectedIndex = cbIdx
+        Else
+            _cboCrossBarType.SelectedIndex = 0
+        End If
+
+        _cboCrossBarOC.SelectedIndex = If(Math.Abs(_paramDefaults.CrossBarOnCenter - 2.0) < 0.001, 0, 1)
+        _txtFirstCrossBarOffset.Text = _paramDefaults.FirstCrossBarOffset.ToString("G")
+        ' Set banding state from defaults and update toggle buttons
+        _isBandingOpen = (_paramDefaults.Banding = BandingOptionType.OpenEnded)
+        ApplyBandingToggleStyle()
+
+        ' Set serration state from defaults and update toggle buttons
+        _isSerrationActive = (_paramDefaults.SurfaceProfile = SurfaceProfileType.Serrated)
+        ApplySurfaceToggleStyle()
+
+        ' Notch overrides — only populate if controls exist (section expanded)
+        If _txtNotchSlotWidth IsNot Nothing Then
+            _txtNotchSlotWidth.Text = If(_paramDefaults.NotchSlotWidthOverride.HasValue,
+                _paramDefaults.NotchSlotWidthOverride.Value.ToString("G"), "")
+        End If
+        If _txtNotchSlotDepth IsNot Nothing Then
+            _txtNotchSlotDepth.Text = If(_paramDefaults.NotchSlotDepthOverride.HasValue,
+                _paramDefaults.NotchSlotDepthOverride.Value.ToString("G"), "")
+        End If
+        If _txtNotchStraightDepth IsNot Nothing Then
+            _txtNotchStraightDepth.Text = If(_paramDefaults.NotchStraightDepthOverride.HasValue,
+                _paramDefaults.NotchStraightDepthOverride.Value.ToString("G"), "")
+        End If
+        If _txtNotchBottomRadius IsNot Nothing Then
+            _txtNotchBottomRadius.Text = If(_paramDefaults.NotchBottomRadiusOverride.HasValue,
+                _paramDefaults.NotchBottomRadiusOverride.Value.ToString("G"), "")
+        End If
+
+        ' Serration overrides — only populate if controls exist
+        If _txtSerrChord IsNot Nothing Then
+            _txtSerrChord.Text = If(_paramDefaults.SerrationChordOverride.HasValue,
+                _paramDefaults.SerrationChordOverride.Value.ToString("G"), "")
+        End If
+        If _txtSerrFlatWidth IsNot Nothing Then
+            _txtSerrFlatWidth.Text = If(_paramDefaults.SerrationFlatWidthOverride.HasValue,
+                _paramDefaults.SerrationFlatWidthOverride.Value.ToString("G"), "")
+        End If
+        If _txtSerrArcRadius IsNot Nothing Then
+            _txtSerrArcRadius.Text = If(_paramDefaults.SerrationArcRadiusOverride.HasValue,
+                _paramDefaults.SerrationArcRadiusOverride.Value.ToString("G"), "")
+        End If
+        If _txtSerrMargin IsNot Nothing Then
+            _txtSerrMargin.Text = If(_paramDefaults.SerrationMarginOverride.HasValue,
+                _paramDefaults.SerrationMarginOverride.Value.ToString("G"), "")
+        End If
+    End Sub
+
+    ' ==================================================================
+    '  Scroll helpers (manual scroll — no native scrollbar)
+    ' ==================================================================
+
+    Private Sub OnContainerResize(sender As Object, e As EventArgs)
+        If _contentPanel Is Nothing Then Return
+
+        ' When idle with the product info image, rebuild the layout
+        ' so the image fills the new browser width.
+        If _mode = PanelMode.Idle AndAlso
+           _picIdleInfo IsNot Nothing AndAlso _picIdleInfo.Image IsNot Nothing Then
+            ShowIdleContent()
+            Return
+        End If
+
+        _contentPanel.SuspendLayout()
+        _contentPanel.Width = Me.ClientSize.Width
+        Dim visH = Me.ClientSize.Height
+        If _buttonPanel IsNot Nothing AndAlso _buttonPanel.Visible Then visH -= ButtonPanelHeight
+        _contentPanel.Height = Math.Max(_contentHeight, visH)
+        Dim maxScroll = Math.Max(0, _contentHeight - visH)
+        Dim offset = Math.Max(0, -_contentPanel.Top)
+        offset = Math.Min(maxScroll, offset)
+        _contentPanel.Top = -offset
+        _contentPanel.ResumeLayout(True)
+        UpdateScrollbar()
+        ' Force full repaint to clear any ghost/overlay artifacts
+        Me.Invalidate(True)
+        Me.Update()
+    End Sub
+
+    Friend Sub ScrollContent(delta As Integer)
+        If _contentPanel Is Nothing Then Return
+        Dim visH = Me.ClientSize.Height
+        If _buttonPanel IsNot Nothing AndAlso _buttonPanel.Visible Then visH -= ButtonPanelHeight
+        Dim maxScroll = Math.Max(0, _contentHeight - visH)
+        If maxScroll = 0 Then Return
+        Dim offset = Math.Max(0, -_contentPanel.Top)
+        offset -= delta
+        offset = Math.Min(maxScroll, Math.Max(0, offset))
+        _contentPanel.Top = -offset
+        UpdateScrollbar()
+    End Sub
+
+    ' ==================================================================
+    '  Custom scrollbar
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Syncs the scrollbar track/thumb visibility and position with
+    ''' the current content height and scroll offset.
+    ''' </summary>
+    Private Sub UpdateScrollbar()
+        If _scrollTrack Is Nothing Then Return
+
+        Dim visH As Integer = Me.ClientSize.Height
+        If _buttonPanel IsNot Nothing AndAlso _buttonPanel.Visible Then visH -= ButtonPanelHeight
+        Dim maxScroll As Integer = Math.Max(0, _contentHeight - visH)
+
+        If maxScroll <= 0 Then
+            _scrollTrack.Visible = False
+            Return
+        End If
+
+        _scrollTrack.Visible = True
+        _scrollTrack.Location = New Point(Me.ClientSize.Width - 14, 0)
+        _scrollTrack.Size = New Size(14, visH)
+
+        ' Thumb height proportional to visible / total (min 30 px)
+        Dim thumbH As Integer = Math.Max(30,
+            CInt(CDbl(visH) * visH / _contentHeight))
+        _scrollThumb.Size = New Size(10, thumbH)
+        _scrollThumb.Left = 2
+
+        ' Thumb position from current scroll offset
+        Dim offset As Integer = Math.Max(0, -_contentPanel.Top)
+        Dim trackRange As Integer = visH - thumbH
+        If trackRange > 0 AndAlso maxScroll > 0 Then
+            _scrollThumb.Top = CInt(CDbl(offset) / maxScroll * trackRange)
+        Else
+            _scrollThumb.Top = 0
+        End If
+    End Sub
+
+    Private Sub OnThumbMouseDown(sender As Object, e As MouseEventArgs)
+        _isDraggingThumb = True
+        _thumbDragStartY = e.Y
+        _thumbDragStartTop = _scrollThumb.Top
+        _scrollThumb.BackColor = Color.FromArgb(140, 143, 148)
+    End Sub
+
+    Private Sub OnThumbMouseMove(sender As Object, e As MouseEventArgs)
+        If Not _isDraggingThumb Then Return
+
+        Dim visH As Integer = Me.ClientSize.Height
+        If _buttonPanel IsNot Nothing AndAlso _buttonPanel.Visible Then visH -= ButtonPanelHeight
+        Dim thumbH As Integer = _scrollThumb.Height
+        Dim trackRange As Integer = visH - thumbH
+        If trackRange <= 0 Then Return
+
+        Dim newTop As Integer = _thumbDragStartTop + (e.Y - _thumbDragStartY)
+        newTop = Math.Max(0, Math.Min(trackRange, newTop))
+        _scrollThumb.Top = newTop
+
+        ' Convert thumb position to content scroll offset
+        Dim maxScroll As Integer = Math.Max(0, _contentHeight - visH)
+        Dim offset As Integer = CInt(CDbl(newTop) / trackRange * maxScroll)
+        _contentPanel.Top = -offset
+    End Sub
+
+    Private Sub OnThumbMouseUp(sender As Object, e As MouseEventArgs)
+        _isDraggingThumb = False
+        _scrollThumb.BackColor = Color.FromArgb(100, 103, 108)
+    End Sub
+
+    Private Sub OnTrackMouseClick(sender As Object, e As MouseEventArgs)
+        ' Page-scroll toward the clicked position
+        Dim visH As Integer = Me.ClientSize.Height
+        If e.Y < _scrollThumb.Top Then
+            ScrollContent(visH \ 2)
+        ElseIf e.Y > _scrollThumb.Top + _scrollThumb.Height Then
+            ScrollContent(-(visH \ 2))
+        End If
+    End Sub
+
+    ' ==================================================================
+    '  Button handlers
+    ' ==================================================================
+
+    Private Sub OnParamOKClick(sender As Object, e As EventArgs)
+        Dim barDepth As Double
+        Dim barWidth As Double
+        Dim firstOffset As Double
+
+        If Not Double.TryParse(_txtBarDepth.Text.Trim(), barDepth) Then
+            ShowParamError("Bar Depth must be a valid number.")
+            Return
+        End If
+
+        If Not Double.TryParse(_txtBarWidth.Text.Trim(), barWidth) Then
+            ShowParamError("Bar Width must be a valid number.")
+            Return
+        End If
+
+        If Not Double.TryParse(_txtFirstCrossBarOffset.Text.Trim(), firstOffset) Then
+            ShowParamError("First Cross Bar Offset must be a valid number.")
+            Return
+        End If
+
+        Dim result As New GratingParameters()
+        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 1,
+                                  SpanDirectionType.AlongY,
+                                  SpanDirectionType.AlongX)
+        result.BarDepth = barDepth
+        result.BarWidth = barWidth
+
+        ' O.C. spacing from dropdown
+        If _cboOnCenterSpacing IsNot Nothing AndAlso
+           _cboOnCenterSpacing.SelectedIndex >= 0 AndAlso
+           _cboOnCenterSpacing.SelectedIndex < _ocSpacingValues.Length Then
+            result.OnCenterSpacing = _ocSpacingValues(_cboOnCenterSpacing.SelectedIndex)
+        Else
+            result.OnCenterSpacing = 1.1875
+        End If
+
+        result.OutputFolder = _txtOutputFolder.Text.Trim()
+        result.NamingPrefix = _txtNamingPrefix.Text.Trim()
+
+        result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
+
+        Dim ocText As String = CStr(_cboCrossBarOC.SelectedItem)
+        Dim ocValue As Double
+        If Double.TryParse(ocText, ocValue) Then
+            result.CrossBarOnCenter = ocValue
+        Else
+            result.CrossBarOnCenter = 2.0
+        End If
+
+        result.FirstCrossBarOffset = firstOffset
+        result.SurfaceProfile = If(_isSerrationActive, SurfaceProfileType.Serrated, SurfaceProfileType.Plain)
+        result.Banding = If(_isBandingOpen, BandingOptionType.OpenEnded, BandingOptionType.Banded)
+
+        ' Parse notch overrides — blank = use default (Nothing)
+        Dim nv As Double
+        If _txtNotchSlotWidth IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtNotchSlotWidth.Text) Then
+            If Not Double.TryParse(_txtNotchSlotWidth.Text.Trim(), nv) OrElse nv <= 0 Then
+                ShowParamError("Notch Slot Width must be a positive number (or leave blank for default).")
+                Return
+            End If
+            result.NotchSlotWidthOverride = nv
+        End If
+        If _txtNotchSlotDepth IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtNotchSlotDepth.Text) Then
+            If Not Double.TryParse(_txtNotchSlotDepth.Text.Trim(), nv) OrElse nv <= 0 Then
+                ShowParamError("Notch Slot Depth must be a positive number (or leave blank for default).")
+                Return
+            End If
+            result.NotchSlotDepthOverride = nv
+        End If
+        If _txtNotchStraightDepth IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtNotchStraightDepth.Text) Then
+            If Not Double.TryParse(_txtNotchStraightDepth.Text.Trim(), nv) OrElse nv < 0 Then
+                ShowParamError("Notch Straight Depth must be zero or positive (or leave blank for default).")
+                Return
+            End If
+            result.NotchStraightDepthOverride = nv
+        End If
+        If _txtNotchBottomRadius IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtNotchBottomRadius.Text) Then
+            If Not Double.TryParse(_txtNotchBottomRadius.Text.Trim(), nv) OrElse nv < 0 Then
+                ShowParamError("Notch Bottom Radius must be zero or positive (or leave blank for default).")
+                Return
+            End If
+            result.NotchBottomRadiusOverride = nv
+        End If
+
+        ' Parse serration overrides — only when serrated and controls exist
+        If _isSerrationActive Then
+            If _txtSerrChord IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtSerrChord.Text) Then
+                If Not Double.TryParse(_txtSerrChord.Text.Trim(), nv) OrElse nv <= 0 Then
+                    ShowParamError("Scallop Chord must be a positive number (or leave blank for default).")
+                    Return
+                End If
+                result.SerrationChordOverride = nv
+            End If
+            If _txtSerrFlatWidth IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtSerrFlatWidth.Text) Then
+                If Not Double.TryParse(_txtSerrFlatWidth.Text.Trim(), nv) OrElse nv < 0 Then
+                    ShowParamError("Flat Width must be zero or positive (or leave blank for default).")
+                    Return
+                End If
+                result.SerrationFlatWidthOverride = nv
+            End If
+            If _txtSerrArcRadius IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtSerrArcRadius.Text) Then
+                If Not Double.TryParse(_txtSerrArcRadius.Text.Trim(), nv) OrElse nv <= 0 Then
+                    ShowParamError("Arc Radius must be a positive number (or leave blank for default).")
+                    Return
+                End If
+                result.SerrationArcRadiusOverride = nv
+            End If
+            If _txtSerrMargin IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_txtSerrMargin.Text) Then
+                If Not Double.TryParse(_txtSerrMargin.Text.Trim(), nv) OrElse nv < 0 Then
+                    ShowParamError("Margin must be zero or positive (or leave blank for default).")
+                    Return
+                End If
+                result.SerrationMarginOverride = nv
+            End If
+        End If
+
+        Dim errors As List(Of String) = InputValidationService.Validate(result)
+        If errors.Count > 0 Then
+            ShowParamError(String.Join(vbCrLf, errors))
+            Return
+        End If
+
+        _resultParams = result
+        _action = UserAction.Done
+        _actionTaken = True
+    End Sub
+
+    Private Sub OnParamCancelClick(sender As Object, e As EventArgs)
+        _action = UserAction.Cancel
+        _actionTaken = True
+    End Sub
+
+    Private Sub OnBrowseFolderClick(sender As Object, e As EventArgs)
+        Using dlg As New FolderBrowserDialog()
+            dlg.Description = "Select output folder for grating files"
+            If Not String.IsNullOrWhiteSpace(_txtOutputFolder.Text) AndAlso
+               System.IO.Directory.Exists(_txtOutputFolder.Text) Then
+                dlg.SelectedPath = _txtOutputFolder.Text
+            End If
+            If dlg.ShowDialog() = System.Windows.Forms.DialogResult.OK Then
+                _txtOutputFolder.Text = dlg.SelectedPath
+            End If
+        End Using
+    End Sub
+
+    ' ==================================================================
+    '  Notch profile toggle (Plain / Serrated)
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Handles click on the Plain toggle button.
+    ''' </summary>
+    Private Sub OnPlainClick(sender As Object, e As EventArgs)
+        If Not _isSerrationActive Then Return
+        _isSerrationActive = False
+        ApplySurfaceToggleStyle()
+        If Not _notchSectionCollapsed Then
+            Dim saved = ParseCurrentParameters()
+            _paramDefaults = saved
+            ShowParameterInputContent()
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Handles click on the Serrated toggle button.
+    ''' </summary>
+    Private Sub OnSerratedClick(sender As Object, e As EventArgs)
+        If _isSerrationActive Then Return
+        _isSerrationActive = True
+        ApplySurfaceToggleStyle()
+        If Not _notchSectionCollapsed Then
+            Dim saved = ParseCurrentParameters()
+            _paramDefaults = saved
+            ShowParameterInputContent()
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Applies the active/inactive visual style to the Plain and
+    ''' Serrated toggle buttons based on <see cref="_isSerrationActive"/>.
+    ''' </summary>
+    Private Sub ApplySurfaceToggleStyle()
+        If _btnPlain IsNot Nothing Then
+            _btnPlain.BackColor = If(Not _isSerrationActive, _clrAccent, _clrControlBack)
+            _btnPlain.ForeColor = _clrText
+            _btnPlain.FlatAppearance.BorderColor = If(Not _isSerrationActive, _clrAccent, _clrControlBorder)
+        End If
+        If _btnSerrated IsNot Nothing Then
+            _btnSerrated.BackColor = If(_isSerrationActive, _clrAccent, _clrControlBack)
+            _btnSerrated.ForeColor = _clrText
+            _btnSerrated.FlatAppearance.BorderColor = If(_isSerrationActive, _clrAccent, _clrControlBorder)
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Handles click on the Banded toggle button.
+    ''' </summary>
+    Private Sub OnBandedClick(sender As Object, e As EventArgs)
+        If Not _isBandingOpen Then Return
+        _isBandingOpen = False
+        ApplyBandingToggleStyle()
+    End Sub
+
+    ''' <summary>
+    ''' Handles click on the Open Ended toggle button.
+    ''' </summary>
+    Private Sub OnOpenEndedClick(sender As Object, e As EventArgs)
+        If _isBandingOpen Then Return
+        _isBandingOpen = True
+        ApplyBandingToggleStyle()
+    End Sub
+
+    ''' <summary>
+    ''' Applies the active/inactive visual style to the Banded and
+    ''' Open Ended toggle buttons based on <see cref="_isBandingOpen"/>.
+    ''' </summary>
+    Private Sub ApplyBandingToggleStyle()
+        If _btnBanded IsNot Nothing Then
+            _btnBanded.BackColor = If(Not _isBandingOpen, _clrAccent, _clrControlBack)
+            _btnBanded.ForeColor = _clrText
+            _btnBanded.FlatAppearance.BorderColor = If(Not _isBandingOpen, _clrAccent, _clrControlBorder)
+        End If
+        If _btnOpenEnded IsNot Nothing Then
+            _btnOpenEnded.BackColor = If(_isBandingOpen, _clrAccent, _clrControlBack)
+            _btnOpenEnded.ForeColor = _clrText
+            _btnOpenEnded.FlatAppearance.BorderColor = If(_isBandingOpen, _clrAccent, _clrControlBorder)
+        End If
+    End Sub
+
+    Private Sub SetSerrationFieldState(lbl As Label, txt As TextBox, enabled As Boolean)
+        If lbl IsNot Nothing Then
+            lbl.ForeColor = If(enabled, _clrText, _clrDisabledText)
+        End If
+        If txt IsNot Nothing Then
+            txt.Enabled = enabled
+            txt.BackColor = If(enabled, _clrControlBack, _clrDisabledBack)
+            txt.ForeColor = If(enabled, _clrText, _clrDisabledText)
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Builds a GratingParameters object from the current panel fields.
+    ''' Best-effort parsing (no validation errors) for re-population.
+    ''' </summary>
+    Friend Function ParseCurrentParameters() As GratingParameters
+        Dim result As New GratingParameters()
+
+        result.SpanDirection = If(_cboSpanDirection IsNot Nothing AndAlso
+            _cboSpanDirection.SelectedIndex = 1,
+            SpanDirectionType.AlongY, SpanDirectionType.AlongX)
+
+        Dim barDepth As Double
+        If _txtBarDepth IsNot Nothing AndAlso
+           Double.TryParse(_txtBarDepth.Text.Trim(), barDepth) Then
+            result.BarDepth = barDepth
+        Else
+            result.BarDepth = 2.0
+
+        End If
+
+        Dim barWidth As Double
+        If _txtBarWidth IsNot Nothing AndAlso
+           Double.TryParse(_txtBarWidth.Text.Trim(), barWidth) Then
+            result.BarWidth = barWidth
+        Else
+            result.BarWidth = 0.1875
+        End If
+
+        Dim spacing As Double
+        If _cboOnCenterSpacing IsNot Nothing AndAlso
+           _cboOnCenterSpacing.SelectedIndex >= 0 AndAlso
+           _cboOnCenterSpacing.SelectedIndex < _ocSpacingValues.Length Then
+            result.OnCenterSpacing = _ocSpacingValues(_cboOnCenterSpacing.SelectedIndex)
+        Else
+            result.OnCenterSpacing = 1.1875
+        End If
+
+        If _cboCrossBarType IsNot Nothing AndAlso _cboCrossBarType.SelectedIndex >= 0 Then
+            result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
+        End If
+
+        If _cboCrossBarOC IsNot Nothing AndAlso _cboCrossBarOC.SelectedItem IsNot Nothing Then
+            Dim ocValue As Double
+            If Double.TryParse(CStr(_cboCrossBarOC.SelectedItem), ocValue) Then
+                result.CrossBarOnCenter = ocValue
+            Else
+                result.CrossBarOnCenter = 2.0
+            End If
+        End If
+
+        Dim firstOffset As Double
+        If _txtFirstCrossBarOffset IsNot Nothing AndAlso
+           Double.TryParse(_txtFirstCrossBarOffset.Text.Trim(), firstOffset) Then
+            result.FirstCrossBarOffset = firstOffset
+        Else
+            result.FirstCrossBarOffset = 1.0
+        End If
+
+        result.SurfaceProfile = If(_isSerrationActive, SurfaceProfileType.Serrated, SurfaceProfileType.Plain)
+
+        result.Banding = If(_isBandingOpen, BandingOptionType.OpenEnded, BandingOptionType.Banded)
+
+        If _txtOutputFolder IsNot Nothing Then
+            result.OutputFolder = _txtOutputFolder.Text.Trim()
+        End If
+
+        If _txtNamingPrefix IsNot Nothing Then
+            result.NamingPrefix = _txtNamingPrefix.Text.Trim()
+        End If
+
+        ' Notch overrides — best-effort parse
+        Dim nv As Double
+        If _txtNotchSlotWidth IsNot Nothing AndAlso
+           Not String.IsNullOrWhiteSpace(_txtNotchSlotWidth.Text) AndAlso
+           Double.TryParse(_txtNotchSlotWidth.Text.Trim(), nv) AndAlso nv > 0 Then
+            result.NotchSlotWidthOverride = nv
+        End If
+        If _txtNotchSlotDepth IsNot Nothing AndAlso
+           Not String.IsNullOrWhiteSpace(_txtNotchSlotDepth.Text) AndAlso
+           Double.TryParse(_txtNotchSlotDepth.Text.Trim(), nv) AndAlso nv > 0 Then
+            result.NotchSlotDepthOverride = nv
+        End If
+        If _txtNotchStraightDepth IsNot Nothing AndAlso
+           Not String.IsNullOrWhiteSpace(_txtNotchStraightDepth.Text) AndAlso
+           Double.TryParse(_txtNotchStraightDepth.Text.Trim(), nv) AndAlso nv >= 0 Then
+            result.NotchStraightDepthOverride = nv
+        End If
+        If _txtNotchBottomRadius IsNot Nothing AndAlso
+           Not String.IsNullOrWhiteSpace(_txtNotchBottomRadius.Text) AndAlso
+           Double.TryParse(_txtNotchBottomRadius.Text.Trim(), nv) AndAlso nv >= 0 Then
+            result.NotchBottomRadiusOverride = nv
+        End If
+
+        ' Serration overrides — best-effort parse (only when serrated toggle is active)
+        If _isSerrationActive Then
+            If _txtSerrChord IsNot Nothing AndAlso
+               Not String.IsNullOrWhiteSpace(_txtSerrChord.Text) AndAlso
+               Double.TryParse(_txtSerrChord.Text.Trim(), nv) AndAlso nv > 0 Then
+                result.SerrationChordOverride = nv
+            End If
+            If _txtSerrFlatWidth IsNot Nothing AndAlso
+               Not String.IsNullOrWhiteSpace(_txtSerrFlatWidth.Text) AndAlso
+               Double.TryParse(_txtSerrFlatWidth.Text.Trim(), nv) AndAlso nv >= 0 Then
+                result.SerrationFlatWidthOverride = nv
+            End If
+            If _txtSerrArcRadius IsNot Nothing AndAlso
+               Not String.IsNullOrWhiteSpace(_txtSerrArcRadius.Text) AndAlso
+               Double.TryParse(_txtSerrArcRadius.Text.Trim(), nv) AndAlso nv > 0 Then
+                result.SerrationArcRadiusOverride = nv
+            End If
+            If _txtSerrMargin IsNot Nothing AndAlso
+               Not String.IsNullOrWhiteSpace(_txtSerrMargin.Text) AndAlso
+               Double.TryParse(_txtSerrMargin.Text.Trim(), nv) AndAlso nv >= 0 Then
+                result.SerrationMarginOverride = nv
+            End If
+        End If
+
+        Return result
+    End Function
+
+    ' ==================================================================
+    '  Parameter input helpers
+    ' ==================================================================
+
+    Private Sub AddFieldLabel(parent As Control, text As String, x As Integer, y As Integer)
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.AutoSize = True
+        lbl.Location = New Point(x, y)
+        lbl.ForeColor = _clrText
+        parent.Controls.Add(lbl)
+    End Sub
+
+    ''' <summary>
+    ''' Same as AddFieldLabel but returns the Label so the caller can
+    ''' store it for later enable/disable toggling.
+    ''' </summary>
+    Private Function AddFieldLabelEx(parent As Control, text As String, x As Integer, y As Integer) As Label
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.AutoSize = True
+        lbl.Location = New Point(x, y)
+        lbl.ForeColor = _clrText
+        parent.Controls.Add(lbl)
+        Return lbl
+    End Function
+
+    Private Sub AddBoldLabel(parent As Control, text As String, x As Integer, y As Integer,
+                             Optional fontSize As Single = 0)
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.AutoSize = True
+        lbl.Location = New Point(x, y)
+        lbl.ForeColor = _clrText
+        If fontSize > 0 Then
+            lbl.Font = New Font(Me.Font.FontFamily, fontSize, FontStyle.Bold)
+        Else
+            lbl.Font = New Font(Me.Font, FontStyle.Bold)
+        End If
+        parent.Controls.Add(lbl)
+    End Sub
+
+    ''' <summary>
+    ''' Adds a section header with a separator line and ▼ chevron label.
+    ''' Advances y by reference.
+    ''' </summary>
+    Private Sub AddSectionHeader(parent As Control, text As String, x As Integer,
+                                   ByRef y As Integer, cw As Integer)
+        Dim sep As New Label()
+        sep.AutoSize = False
+        sep.Height = 1
+        sep.Width = cw
+        sep.Location = New Point(x, y)
+        sep.BackColor = _clrControlBorder
+        sep.Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+        parent.Controls.Add(sep)
+        y += 12
+
+        Dim lbl As New Label()
+        lbl.Text = ChrW(&H25BC) & "  " & text
+        lbl.Font = New Font(Me.Font, FontStyle.Bold)
+        lbl.AutoSize = True
+        lbl.Location = New Point(x, y)
+        lbl.ForeColor = _clrText
+        parent.Controls.Add(lbl)
+        y += 28
+    End Sub
+
+    ''' <summary>
+    ''' Adds a collapsible section header with chevron, optional badge,
+    ''' and click handler. Advances y by reference.
+    ''' </summary>
+    Private Sub AddCollapsibleSectionHeader(parent As Control, text As String,
+                                             badge As String, x As Integer,
+                                             ByRef y As Integer, cw As Integer,
+                                             clickHandler As EventHandler)
+        Dim sep As New Label()
+        sep.AutoSize = False
+        sep.Height = 1
+        sep.Width = cw
+        sep.Location = New Point(x, y)
+        sep.BackColor = _clrControlBorder
+        sep.Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+        parent.Controls.Add(sep)
+        y += 12
+
+        Dim chevron As String = If(_notchSectionCollapsed, ChrW(&H25B6), ChrW(&H25BC))
+        Dim lbl As New Label()
+        lbl.Text = chevron & "  " & text
+        lbl.Font = New Font(Me.Font, FontStyle.Bold)
+        lbl.AutoSize = True
+        lbl.Location = New Point(x, y)
+        lbl.ForeColor = _clrAccent
+        lbl.Cursor = Cursors.Hand
+        AddHandler lbl.Click, clickHandler
+        parent.Controls.Add(lbl)
+
+        If Not String.IsNullOrEmpty(badge) Then
+            Dim badgeLbl As New Label()
+            badgeLbl.Text = badge
+            badgeLbl.Font = New Font(Me.Font.FontFamily, 7.0F, FontStyle.Italic)
+            badgeLbl.AutoSize = True
+            badgeLbl.Location = New Point(x + lbl.PreferredWidth + 8, y + 3)
+            badgeLbl.ForeColor = _clrDimText
+            parent.Controls.Add(badgeLbl)
+        End If
+        y += 28
+    End Sub
+
+    ''' <summary>
+    ''' Toggles the notch section collapsed state, saves current
+    ''' parameter values, and rebuilds the panel.
+    ''' </summary>
+    Private Sub OnNotchSectionToggle(sender As Object, e As EventArgs)
+        _notchSectionCollapsed = Not _notchSectionCollapsed
+        Dim saved = ParseCurrentParameters()
+        _paramDefaults = saved
+        ShowParameterInputContent()
+    End Sub
+
+    Private Sub ShowParamError(message As String)
+        MessageBox.Show(message,
+                        "Metal Bar Grating — Input Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning)
+    End Sub
+
+    ' ==================================================================
+    '  Dark theme style helpers
+    ' ==================================================================
+
+    Private Sub StyleTextBox(tb As TextBox)
+        tb.BackColor = _clrControlBack
+        tb.ForeColor = _clrText
+        tb.BorderStyle = BorderStyle.FixedSingle
+    End Sub
+
+    Private Sub StyleComboBox(cb As ComboBox)
+        cb.BackColor = _clrControlBack
+        cb.ForeColor = _clrText
+        cb.FlatStyle = FlatStyle.Flat
+    End Sub
+
+    Private Sub StyleButton(btn As Button)
+        btn.FlatStyle = FlatStyle.Flat
+        btn.BackColor = _clrControlBack
+        btn.ForeColor = _clrText
+        btn.FlatAppearance.BorderColor = _clrControlBorder
+    End Sub
+
+    ' ==================================================================
+    '  Low-level mouse hook (WH_MOUSE_LL) for wheel scrolling
+    '  inside Inventor DockableWindows.
+    '  IMessageFilter cannot intercept wheel events when Inventor's
+    '  message loop is active (summary/idle modes have no DoEvents).
+    '  The low-level hook is called by any thread message pump.
+    ' ==================================================================
+
+    Private Delegate Function LowLevelMouseProc(
+        nCode As Integer, wParam As IntPtr, lParam As IntPtr) As IntPtr
+
+    Private _mouseHookId As IntPtr = IntPtr.Zero
+    Private _mouseHookProc As LowLevelMouseProc   ' prevent GC
+
+    Private Const WH_MOUSE_LL As Integer = 14
+    Private Const WM_MOUSEWHEEL As Integer = &H20A
+    Private Const HC_ACTION As Integer = 0
+
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure MSLLHOOKSTRUCT
+        Public pt As Point
+        Public mouseData As Integer
+        Public flags As Integer
+        Public time As Integer
+        Public dwExtraInfo As IntPtr
+    End Structure
+
+    <DllImport("user32.dll", SetLastError:=True)>
+    Private Shared Function SetWindowsHookEx(
+        idHook As Integer, lpfn As LowLevelMouseProc,
+        hMod As IntPtr, dwThreadId As UInteger) As IntPtr
+    End Function
+
+    <DllImport("user32.dll")>
+    Private Shared Function UnhookWindowsHookEx(
+        hhk As IntPtr) As Boolean
+    End Function
+
+    <DllImport("user32.dll")>
+    Private Shared Function CallNextHookEx(
+        hhk As IntPtr, nCode As Integer,
+        wParam As IntPtr, lParam As IntPtr) As IntPtr
+    End Function
+
+    <DllImport("kernel32.dll", CharSet:=CharSet.Auto)>
+    Private Shared Function GetModuleHandle(
+        lpModuleName As String) As IntPtr
+    End Function
+
+    Private Sub InstallMouseHook()
+        Try
+            _mouseHookProc = AddressOf MouseHookCallback
+            _mouseHookId = SetWindowsHookEx(
+                WH_MOUSE_LL, _mouseHookProc,
+                GetModuleHandle(Nothing), 0)
+        Catch
+            ' Hook installation failed — wheel scrolling disabled
+        End Try
+    End Sub
+
+    Private Sub UninstallMouseHook()
+        If _mouseHookId <> IntPtr.Zero Then
+            UnhookWindowsHookEx(_mouseHookId)
+            _mouseHookId = IntPtr.Zero
+        End If
+        _mouseHookProc = Nothing
+    End Sub
+
+    Private Function MouseHookCallback(
+            nCode As Integer, wParam As IntPtr,
+            lParam As IntPtr) As IntPtr
+        If nCode >= HC_ACTION AndAlso
+           wParam.ToInt32() = WM_MOUSEWHEEL Then
+            Try
+                If Me.IsHandleCreated AndAlso Not Me.IsDisposed Then
+                    Dim hookStruct As MSLLHOOKSTRUCT = CType(
+                        Marshal.PtrToStructure(
+                            lParam, GetType(MSLLHOOKSTRUCT)),
+                        MSLLHOOKSTRUCT)
+                    Dim pt = Me.PointToClient(hookStruct.pt)
+                    If Me.ClientRectangle.Contains(pt) Then
+                        Dim delta As Integer = hookStruct.mouseData >> 16
+                        ScrollContent(delta)
+                        Return New IntPtr(1)  ' consumed
+                    End If
+                End If
+            Catch
+            End Try
+        End If
+        Return CallNextHookEx(_mouseHookId, nCode, wParam, lParam)
+    End Function
+
+End Class
+
+''' <summary>
+''' Panel subclass with double buffering to prevent flicker.
+''' </summary>
+Friend Class DoubleBufferedPanel
+    Inherits Panel
+
+    Public Sub New()
+        Me.DoubleBuffered = True
+        Me.SetStyle(
+            ControlStyles.AllPaintingInWmPaint Or
+            ControlStyles.OptimizedDoubleBuffer Or
+            ControlStyles.ResizeRedraw, True)
+        Me.UpdateStyles()
+    End Sub
+End Class

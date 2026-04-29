@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity name="HandMadeGratingAddinVB" version="1.0.0.0"></assemblyIdentity>
+  <clrClass clsid="{37b59293-54b3-43f0-8166-ab23d5cf61ed}"
+            progid="HandMadeGratingAddinVB.StandardAddInServer"
+            threadingModel="Both"
+            name="HandMadeGratingAddinVB.StandardAddInServer">
+  </clrClass>
+  <file name="HandMadeGratingAddinVB.dll" hashalg="SHA1"></file>
+</assembly>

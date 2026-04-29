@@ -1,0 +1,197 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' CrossBarNotchSpec: Defines the notch slot dimensions for a given
+' cross bar type and surface profile.  Used by BearingBarNotchService
+' to compute notch positions and build the laser-cut side profile of
+' each bearing bar.
+'
+' Dimensions come from the cross bar profile DWG library.
+' Each of the 14 cross bar type + surface combinations has its own
+' DWG with exact slot width, straight wall depth, and bottom radius.
+'
+' SlotWidth       = notch opening width along the bar (with clearance).
+' StraightDepth   = straight wall depth from top edge before the arc.
+' BottomRadius    = semicircular arc radius at the bottom (round only).
+' SlotDepth       = total depth = StraightDepth + BottomRadius.
+' CrossBarDiameter = actual cross bar size (diameter or thickness),
+'                    used for the cross bar .ipt part, NOT the notch.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Notch geometry specification derived from the selected cross bar
+''' type and surface profile.  All dimensions in inches.
+''' </summary>
+Public Class CrossBarNotchSpec
+
+    ''' <summary>Notch slot opening width along the bar length (inches).
+    ''' Includes clearance — may be slightly larger than the bar diameter.</summary>
+    Public Property SlotWidth As Double
+
+    ''' <summary>Total notch depth from the top edge of the bar (inches).
+    ''' Equals StraightDepth + BottomRadius.</summary>
+    Public Property SlotDepth As Double
+
+    ''' <summary>Depth of straight vertical walls from top edge before
+    ''' the semicircular arc begins (inches).  0 for legacy types not
+    ''' yet updated with DWG dimensions.</summary>
+    Public Property StraightDepth As Double
+
+    ''' <summary>Radius of the semicircular bottom for round cross bars
+    ''' (inches).  0 for rectangular cross bars.</summary>
+    Public Property BottomRadius As Double
+
+    ''' <summary>Actual cross bar dimension — diameter for round,
+    ''' thickness for rectangular (inches).  Used by CrossBarPartGenerator
+    ''' for the cross bar .ipt, NOT for the notch geometry.</summary>
+    Public Property CrossBarDiameter As Double
+
+    ''' <summary>True for round cross bars.</summary>
+    Public Property IsRound As Boolean
+
+    ''' <summary>Human-readable description of the notch type.</summary>
+    Public Property Description As String
+
+    ''' <summary>
+    ''' Derives notch dimensions from the grating parameters.
+    ''' Uses exact DWG profile dimensions where available;
+    ''' falls back to computed defaults for types not yet updated.
+    ''' </summary>
+    Public Shared Function FromParameters(params As GratingParameters) As CrossBarNotchSpec
+        Dim spec As New CrossBarNotchSpec()
+
+        Select Case params.CrossBar
+            Case CrossBarType.Round_3_8
+                spec.IsRound = True
+                spec.CrossBarDiameter = 0.375
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 0.188
+                    spec.BottomRadius = 0.198
+                    spec.SlotDepth = 0.386
+                    spec.Description = "3/8"" RND PLAIN slot"
+                Else
+                    ' Serrated — placeholder until DWG dimensions are provided
+                    spec.SlotWidth = 0.395
+                    spec.StraightDepth = 0.188
+                    spec.BottomRadius = 0.198
+                    spec.SlotDepth = 0.386
+                    spec.Description = "3/8"" RND SERRATED slot"
+                End If
+
+            Case CrossBarType.Round_1_2
+                spec.IsRound = True
+                spec.CrossBarDiameter = 0.5
+                ' Legacy defaults — will be updated with DWG dimensions
+                spec.SlotWidth = 0.5
+                spec.StraightDepth = 0.0
+                spec.BottomRadius = 0.25
+                spec.SlotDepth = 0.25
+                spec.Description = "1/2"" round rod slot"
+
+            Case CrossBarType.Flat_1_4_x_1
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.25
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.010
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.010
+                    spec.Description = "1/4"" x 1"" REC PLAIN slot"
+                Else
+                    ' Serrated — placeholder until exact dimensions provided
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.010
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.010
+                    spec.Description = "1/4"" x 1"" REC SERRATED slot"
+                End If
+
+            Case CrossBarType.Flat_1_4_x_1_1_4
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.25
+                If params.SurfaceProfile = SurfaceProfileType.Plain Then
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.260
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.260
+                    spec.Description = "1/4"" x 1-1/4"" REC PLAIN slot"
+                Else
+                    ' Serrated — placeholder until exact dimensions provided
+                    spec.SlotWidth = 0.270
+                    spec.StraightDepth = 1.260
+                    spec.BottomRadius = 0.0
+                    spec.SlotDepth = 1.260
+                    spec.Description = "1/4"" x 1-1/4"" REC SERRATED slot"
+                End If
+
+            Case CrossBarType.Flat_3_8_x_1
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.375
+                spec.SlotWidth = 0.375
+                spec.StraightDepth = params.BarDepth / 2.0
+                spec.BottomRadius = 0.0
+                spec.SlotDepth = params.BarDepth / 2.0
+                spec.Description = "3/8"" x 1"" flat bar slot"
+
+            Case CrossBarType.Flat_3_8_x_1_1_4
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.375
+                spec.SlotWidth = 0.375
+                spec.StraightDepth = params.BarDepth / 2.0
+                spec.BottomRadius = 0.0
+                spec.SlotDepth = params.BarDepth / 2.0
+                spec.Description = "3/8"" x 1-1/4"" flat bar slot"
+
+            Case Else
+                spec.IsRound = False
+                spec.CrossBarDiameter = 0.375
+                spec.SlotWidth = 0.375
+                spec.StraightDepth = params.BarDepth / 2.0
+                spec.BottomRadius = 0.0
+                spec.SlotDepth = params.BarDepth / 2.0
+                spec.Description = "Default slot (unknown cross bar type)"
+        End Select
+
+        ' Apply user overrides if provided
+        If params.NotchSlotWidthOverride.HasValue Then
+            spec.SlotWidth = params.NotchSlotWidthOverride.Value
+        End If
+        If params.NotchSlotDepthOverride.HasValue Then
+            spec.SlotDepth = params.NotchSlotDepthOverride.Value
+            ' For rectangular bars, StraightDepth = SlotDepth
+            If Not spec.IsRound Then
+                spec.StraightDepth = params.NotchSlotDepthOverride.Value
+            End If
+        End If
+        If params.NotchStraightDepthOverride.HasValue Then
+            spec.StraightDepth = params.NotchStraightDepthOverride.Value
+            ' Recompute total depth for round: StraightDepth + BottomRadius
+            If spec.IsRound Then
+                spec.SlotDepth = spec.StraightDepth + spec.BottomRadius
+            End If
+        End If
+        If params.NotchBottomRadiusOverride.HasValue Then
+            spec.BottomRadius = params.NotchBottomRadiusOverride.Value
+            ' Recompute total depth for round: StraightDepth + BottomRadius
+            If spec.IsRound Then
+                spec.SlotDepth = spec.StraightDepth + spec.BottomRadius
+            End If
+        End If
+
+        Return spec
+    End Function
+
+    Public Overrides Function ToString() As String
+        If IsRound Then
+            Return Description & " — W=" & SlotWidth.ToString("F4") &
+                   """ SD=" & StraightDepth.ToString("F4") &
+                   """ R=" & BottomRadius.ToString("F4") &
+                   """ D=" & SlotDepth.ToString("F4") & """"
+        Else
+            Return Description & " — W=" & SlotWidth.ToString("F4") &
+                   """ D=" & SlotDepth.ToString("F4") & """"
+        End If
+    End Function
+
+End Class

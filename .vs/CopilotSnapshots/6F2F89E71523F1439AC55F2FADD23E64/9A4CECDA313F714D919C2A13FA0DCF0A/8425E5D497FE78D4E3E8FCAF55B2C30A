@@ -1,0 +1,114 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' InputValidationService: Validates all grating parameters (V1 + V2).
+' Returns a list of human-readable error messages (empty = valid).
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Validates a <see cref="GratingParameters"/> instance.
+''' </summary>
+Public Class InputValidationService
+
+    ' Allowed cross bar O.C. spacings per spec
+    Private Shared ReadOnly AllowedCrossBarOC() As Double = {2.0, 4.0}
+
+    ''' <summary>
+    ''' Validates all fields. Returns an empty list when all values are acceptable.
+    ''' </summary>
+    Public Shared Function Validate(params As GratingParameters) As List(Of String)
+        Dim errors As New List(Of String)
+
+        ' ===============================================================
+        '  V1 — Bearing bar fields
+        ' ===============================================================
+
+        ' --- Bar depth ---
+        If params.BarDepth < 2.0 Then
+            errors.Add("Bar depth must be at least 2 inches.")
+        End If
+
+        ' --- Bar width ---
+        If params.BarWidth <= 0 Then
+            errors.Add("Bar width must be greater than zero.")
+        ElseIf params.BarDepth > 0 AndAlso params.BarWidth >= params.BarDepth Then
+            errors.Add("Bar width must be less than bar depth.")
+        End If
+
+        ' --- On-center spacing ---
+        If params.OnCenterSpacing <= 0 Then
+            errors.Add("On-center spacing must be greater than zero.")
+        ElseIf params.BarWidth > 0 AndAlso params.OnCenterSpacing <= params.BarWidth Then
+            errors.Add("On-center spacing must be greater than the bar width.")
+        End If
+
+        ' --- Output folder (optional but must exist if specified) ---
+        If Not String.IsNullOrWhiteSpace(params.OutputFolder) Then
+            If Not System.IO.Directory.Exists(params.OutputFolder) Then
+                errors.Add("Output folder does not exist: " & params.OutputFolder)
+            End If
+        End If
+
+        ' --- Naming prefix (optional, basic sanity) ---
+        If params.NamingPrefix IsNot Nothing Then
+            Dim invalidChars() As Char = System.IO.Path.GetInvalidFileNameChars()
+            For Each c As Char In params.NamingPrefix
+                If Array.IndexOf(invalidChars, c) >= 0 Then
+                    errors.Add("Naming prefix contains invalid filename characters.")
+                    Exit For
+                End If
+            Next
+        End If
+
+        ' ===============================================================
+        '  V2 — Cross bar fields
+        ' ===============================================================
+
+        ' --- Cross bar type (enum range) ---
+        If CInt(params.CrossBar) < 0 OrElse
+           CInt(params.CrossBar) > CInt(CrossBarType.Flat_3_8_x_1_1_4) Then
+            errors.Add("Cross bar type is not a recognized selection.")
+        End If
+
+        ' --- Cross bar on-center spacing ---
+        If params.CrossBarOnCenter <= 0 Then
+            errors.Add("Cross bar O.C. spacing must be greater than zero.")
+        Else
+            Dim isAllowed As Boolean = False
+            For Each v As Double In AllowedCrossBarOC
+                If Math.Abs(params.CrossBarOnCenter - v) < 0.001 Then
+                    isAllowed = True
+                    Exit For
+                End If
+            Next
+            If Not isAllowed Then
+                errors.Add("Cross bar O.C. spacing must be 2"" or 4"".")
+            End If
+        End If
+
+        ' --- First cross bar offset ---
+        If params.FirstCrossBarOffset <= 0 Then
+            errors.Add("First cross bar offset must be greater than zero.")
+        ElseIf params.CrossBarOnCenter > 0 AndAlso
+               params.FirstCrossBarOffset >= params.CrossBarOnCenter Then
+            errors.Add("First cross bar offset must be less than the cross bar O.C. spacing.")
+        End If
+
+        ' ===============================================================
+        '  V2 — Surface profile and banding (enum range checks)
+        ' ===============================================================
+
+        If CInt(params.SurfaceProfile) < 0 OrElse
+           CInt(params.SurfaceProfile) > CInt(SurfaceProfileType.Serrated) Then
+            errors.Add("Surface profile is not a recognized selection.")
+        End If
+
+        If CInt(params.Banding) < 0 OrElse
+           CInt(params.Banding) > CInt(BandingOptionType.OpenEnded) Then
+            errors.Add("Banding option is not a recognized selection.")
+        End If
+
+        Return errors
+    End Function
+
+End Class

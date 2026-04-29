@@ -1,0 +1,445 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' DwgImportService: Imports a DWG or DXF boundary file and creates
+' (or replaces) the GRATING_BOUNDARY named sketch in the active
+' Inventor Part document.
+'
+' Phase 13: DWG/DXF boundary import.
+'
+' Workflow
+' --------
+'  1. Prompt the user with OpenFileDialog to pick a *.dwg / *.dxf.
+'  2. Open the file as a DrawingDocument (invisible, read-only).
+'  3. Extract all line/arc/spline segments from the first Sheet:
+'       Strategy A — DrawingSketch entities (preferred; preserves curves)
+'       Strategy B — DrawingCurves via late binding (fallback)
+'  4. Close the DrawingDocument.
+'  5. In the active Part locate or create the GRATING_BOUNDARY sketch
+'     on the XY WorkPlane (WorkPlanes.Item(3)).
+'     If a sketch by that name already exists it is deleted and
+'     re-created so the content is always fresh.
+'  6. Write the extracted segments as SketchLines (straight approx for
+'     arcs) into the new sketch.
+'  7. Return DwgImportResult — GratingCommand will call
+'     BoundarySourceService.ResolveFromNamedSketch to validate and
+'     extract the perimeter via the standard Phase 12 pipeline.
+'
+' Unit convention
+' ---------------
+'  Inventor DrawingDocument linear units are millimetres.
+'  All extracted X/Y values are scaled to centimetres (÷ 10) so they
+'  match Inventor's internal coordinate system used in Part sketches.
+'  PerimeterExtractor then converts from cm to inches as usual.
+'
+' NOTE: Option Strict Off is inherited from the project settings,
+'       which allows late-bound property access on COM objects.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports System.Windows.Forms
+Imports Inventor
+
+''' <summary>
+''' Opens a DWG/DXF file, extracts boundary geometry, and writes it
+''' into the GRATING_BOUNDARY sketch of the active Part document.
+''' </summary>
+Public Class DwgImportService
+
+    ''' <summary>Millimetres → centimetres (Inventor internal units).</summary>
+    Private Const MmToCm As Double = 0.1
+
+    Private ReadOnly _app As Application
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ' ==================================================================
+    '  Public entry point
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Shows an OpenFileDialog, imports the chosen DWG/DXF, and
+    ''' creates or replaces the GRATING_BOUNDARY sketch in the active
+    ''' Part.  Returns a DwgImportResult; never throws.
+    ''' </summary>
+    Public Function ImportAndCreateSketch() As DwgImportResult
+        ' --- 1. Pick file ---
+        Dim filePath As String = PromptForFile()
+        If String.IsNullOrEmpty(filePath) Then
+            Return DwgImportResult.Failed("User cancelled file selection.")
+        End If
+
+        Trace.TraceInformation(": HMG DwgImportService: File selected — " & filePath)
+
+        ' --- 2. Validate active Part doc ---
+        Dim doc As Document
+        Dim partDoc As PartDocument
+        Dim compDef As PartComponentDefinition
+
+        Try
+            doc = _app.ActiveDocument
+            If doc Is Nothing OrElse
+               doc.DocumentType <> DocumentTypeEnum.kPartDocumentObject Then
+                Return DwgImportResult.Failed(
+                    "No active Part document. " &
+                    "Open or create a Part (.ipt) before importing a DWG/DXF.",
+                    filePath)
+            End If
+            partDoc = CType(doc, PartDocument)
+            compDef = partDoc.ComponentDefinition
+        Catch ex As Exception
+            Return DwgImportResult.Failed(
+                "Could not access the active Part document: " & ex.Message, filePath)
+        End Try
+
+        ' --- 3. Open DWG as DrawingDocument (invisible) ---
+        Dim segments As List(Of ImportedSegment) = Nothing
+        Dim dwgDoc As DrawingDocument = Nothing
+        Try
+            Trace.TraceInformation(
+                ": HMG DwgImportService: Opening DWG document (invisible)...")
+            dwgDoc = CType(
+                _app.Documents.Open(filePath, False),
+                DrawingDocument)
+
+            segments = ExtractSegments(dwgDoc)
+            Trace.TraceInformation(
+                ": HMG DwgImportService: Extracted " &
+                segments.Count & " segments.")
+        Catch ex As Exception
+            Return DwgImportResult.Failed(
+                "Failed to open or read the DWG/DXF file:" & vbCrLf & ex.Message,
+                filePath)
+        Finally
+            ' Always close the drawing document
+            If dwgDoc IsNot Nothing Then
+                Try
+                    dwgDoc.Close(True)   ' True = discard changes
+                    Trace.TraceInformation(
+                        ": HMG DwgImportService: DWG document closed.")
+                Catch
+                End Try
+            End If
+        End Try
+
+        If segments Is Nothing OrElse segments.Count = 0 Then
+            Return DwgImportResult.Failed(
+                "No line segments could be extracted from the DWG/DXF file." &
+                vbCrLf & vbCrLf &
+                "Ensure the file contains visible linework on the default layer.",
+                filePath)
+        End If
+
+        ' --- 4. Delete existing GRATING_BOUNDARY sketch if present ---
+        Dim sketchName As String = BoundarySourceService.PrimaryName
+        Try
+            DeleteSketchIfExists(compDef, sketchName)
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG DwgImportService: Could not delete existing sketch — " &
+                ex.Message)
+        End Try
+
+        ' --- 5. Create new sketch on XY plane ---
+        Dim newSketch As PlanarSketch
+        Try
+            Dim xyPlane As WorkPlane = compDef.WorkPlanes.Item(3) ' XY plane
+            newSketch = compDef.Sketches.Add(xyPlane)
+            newSketch.Name = sketchName
+            Trace.TraceInformation(
+                ": HMG DwgImportService: Created sketch '" & sketchName & "'.")
+        Catch ex As Exception
+            Return DwgImportResult.Failed(
+                "Failed to create sketch '" & sketchName & "':" & vbCrLf &
+                ex.Message, filePath)
+        End Try
+
+        ' --- 6. Write segments into sketch ---
+        Dim written As Integer = 0
+        Try
+            written = WriteSegmentsToSketch(newSketch, segments)
+            Trace.TraceInformation(
+                ": HMG DwgImportService: " & written & "/" &
+                segments.Count & " segments written to sketch.")
+        Catch ex As Exception
+            Return DwgImportResult.Failed(
+                "Failed to write geometry into sketch '" & sketchName & "':" &
+                vbCrLf & ex.Message, filePath)
+        End Try
+
+        If written = 0 Then
+            Return DwgImportResult.Failed(
+                "Geometry was extracted from the DWG but could not be written " &
+                "into the Part sketch. Check that the DWG units and scale are " &
+                "compatible with the active Part document.",
+                filePath)
+        End If
+
+        Trace.TraceInformation(
+            ": HMG DwgImportService: Import complete — " &
+            written & " segments in '" & sketchName & "'.")
+
+        Return DwgImportResult.Succeeded(sketchName, filePath, written)
+    End Function
+
+    ' ==================================================================
+    '  File selection
+    ' ==================================================================
+
+    Private Shared Function PromptForFile() As String
+        Using dlg As New OpenFileDialog()
+            dlg.Title = "Hand Made Grating — Select DWG or DXF Boundary File"
+            dlg.Filter = "AutoCAD Files (*.dwg;*.dxf)|*.dwg;*.dxf|All Files (*.*)|*.*"
+            dlg.FilterIndex = 1
+            dlg.CheckFileExists = True
+            dlg.Multiselect = False
+
+            If dlg.ShowDialog() = DialogResult.OK Then
+                Return dlg.FileName
+            End If
+        End Using
+        Return Nothing
+    End Function
+
+    ' ==================================================================
+    '  Segment extraction from DrawingDocument
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Tries Strategy A (DrawingSketch entities), then Strategy B
+    ''' (DrawingCurves via late binding) and returns all segments found.
+    ''' </summary>
+    Private Function ExtractSegments(
+            dwgDoc As DrawingDocument) As List(Of ImportedSegment)
+
+        Dim results As New List(Of ImportedSegment)
+
+        Try
+            Dim sheet As Sheet = dwgDoc.Sheets.Item(1)
+            Trace.TraceInformation(
+                ": HMG DwgImportService: Reading Sheet 1 — " &
+                "DrawingSketches=" & sheet.DrawingSketches.Count)
+
+            ' Strategy A: DrawingSketch entities (preferred)
+            Try
+                For Each ds As DrawingSketch In sheet.DrawingSketches
+                    ExtractFromDrawingSketch(ds, results)
+                Next
+                Trace.TraceInformation(
+                    ": HMG DwgImportService: Strategy A yielded " &
+                    results.Count & " segments.")
+            Catch exA As Exception
+                Trace.TraceWarning(
+                    ": HMG DwgImportService: Strategy A error — " & exA.Message)
+            End Try
+
+            ' Strategy B: DrawingCurves (fallback; via late binding)
+            If results.Count = 0 Then
+                Trace.TraceInformation(
+                    ": HMG DwgImportService: Falling back to Strategy B (DrawingCurves).")
+                Try
+                    ExtractFromDrawingCurves(sheet, results)
+                    Trace.TraceInformation(
+                        ": HMG DwgImportService: Strategy B yielded " &
+                        results.Count & " segments.")
+                Catch exB As Exception
+                    Trace.TraceWarning(
+                        ": HMG DwgImportService: Strategy B error — " & exB.Message)
+                End Try
+            End If
+
+        Catch ex As Exception
+            Trace.TraceError(
+                ": HMG DwgImportService: Sheet access failed — " & ex.Message)
+        End Try
+
+        Return results
+    End Function
+
+    ''' <summary>
+    ''' Strategy A: Walk SketchEntities in a DrawingSketch.
+    ''' Handles SketchLine, SketchArc (approximated as chord), and
+    ''' ignores point-only entities.
+    ''' Coordinates are in mm → converted to cm.
+    ''' </summary>
+    Private Shared Sub ExtractFromDrawingSketch(
+            ds As DrawingSketch,
+            results As List(Of ImportedSegment))
+        Try
+            For Each entity As SketchEntity In ds.SketchEntities
+                Try
+                    Select Case entity.Type
+                        Case ObjectTypeEnum.kSketchLineObject
+                            Dim line As SketchLine = CType(entity, SketchLine)
+                            results.Add(New ImportedSegment(
+                                line.StartSketchPoint.Geometry.X * MmToCm,
+                                line.StartSketchPoint.Geometry.Y * MmToCm,
+                                line.EndSketchPoint.Geometry.X * MmToCm,
+                                line.EndSketchPoint.Geometry.Y * MmToCm))
+
+                        Case ObjectTypeEnum.kSketchArcObject
+                            ' Approximate arc as a straight chord
+                            Dim arc As SketchArc = CType(entity, SketchArc)
+                            results.Add(New ImportedSegment(
+                                arc.StartSketchPoint.Geometry.X * MmToCm,
+                                arc.StartSketchPoint.Geometry.Y * MmToCm,
+                                arc.EndSketchPoint.Geometry.X * MmToCm,
+                                arc.EndSketchPoint.Geometry.Y * MmToCm))
+                    End Select
+                Catch
+                    ' Skip unreadable entities
+                End Try
+            Next
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG DwgImportService: DrawingSketch entity walk error — " &
+                ex.Message)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Strategy B: Access DrawingCurves via late binding.
+    ''' DrawingCurves is a sheet-level collection not always available
+    ''' through early binding; late binding ensures compatibility.
+    ''' Coordinates are in mm → converted to cm.
+    ''' </summary>
+    Private Shared Sub ExtractFromDrawingCurves(
+            sheet As Object,
+            results As List(Of ImportedSegment))
+        Try
+            Dim curves As Object = sheet.DrawingCurves
+            Dim count As Integer = CInt(curves.Count)
+
+            For i As Integer = 1 To count
+                Try
+                    Dim curve As Object = curves.Item(i)
+
+                    ' Each DrawingCurve has a Geometry property (curve type)
+                    Dim geom As Object = curve.Geometry
+
+                    ' Try to read as a line (StartPoint / EndPoint)
+                    Try
+                        Dim sp As Object = geom.StartPoint
+                        Dim ep As Object = geom.EndPoint
+                        results.Add(New ImportedSegment(
+                            CDbl(sp.X) * MmToCm, CDbl(sp.Y) * MmToCm,
+                            CDbl(ep.X) * MmToCm, CDbl(ep.Y) * MmToCm))
+                        Continue For
+                    Catch
+                    End Try
+
+                    ' Try arc: use start/end points as chord approximation
+                    Try
+                        Dim sp As Object = curve.StartPoint
+                        Dim ep As Object = curve.EndPoint
+                        results.Add(New ImportedSegment(
+                            CDbl(sp.X) * MmToCm, CDbl(sp.Y) * MmToCm,
+                            CDbl(ep.X) * MmToCm, CDbl(ep.Y) * MmToCm))
+                    Catch
+                    End Try
+
+                Catch
+                    ' Skip curves that cannot be accessed
+                End Try
+            Next
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG DwgImportService: DrawingCurves walk error — " & ex.Message)
+        End Try
+    End Sub
+
+    ' ==================================================================
+    '  Write segments to Part sketch
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Writes each imported segment as a SketchLine in the given Part sketch.
+    ''' Returns the number of lines successfully created.
+    ''' Coordinates are already in Inventor cm units.
+    ''' </summary>
+    Private Shared Function WriteSegmentsToSketch(
+            sketch As PlanarSketch,
+            segments As List(Of ImportedSegment)) As Integer
+
+        Dim tg As TransientGeometry = sketch.Application.TransientGeometry
+        Dim written As Integer = 0
+
+        For Each seg As ImportedSegment In segments
+            Try
+                ' Skip degenerate zero-length segments
+                Dim dx As Double = seg.X2 - seg.X1
+                Dim dy As Double = seg.Y2 - seg.Y1
+                If Math.Sqrt(dx * dx + dy * dy) < 0.0001 Then Continue For
+
+                Dim p1 As Point2d = tg.CreatePoint2d(seg.X1, seg.Y1)
+                Dim p2 As Point2d = tg.CreatePoint2d(seg.X2, seg.Y2)
+                sketch.SketchLines.AddByTwoPoints(p1, p2)
+                written += 1
+            Catch ex As Exception
+                Trace.TraceWarning(
+                    ": HMG DwgImportService: Could not write segment — " &
+                    ex.Message)
+            End Try
+        Next
+
+        Return written
+    End Function
+
+    ' ==================================================================
+    '  Sketch management
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Deletes the sketch with the given name from the Part, if it exists.
+    ''' </summary>
+    Private Shared Sub DeleteSketchIfExists(
+            compDef As PartComponentDefinition,
+            sketchName As String)
+        Try
+            For Each sketch As PlanarSketch In compDef.Sketches
+                Try
+                    If String.Equals(sketch.Name, sketchName,
+                                     StringComparison.OrdinalIgnoreCase) Then
+                        sketch.Delete()
+                        Trace.TraceInformation(
+                            ": HMG DwgImportService: Deleted existing sketch '" &
+                            sketchName & "'.")
+                        Return
+                    End If
+                Catch
+                End Try
+            Next
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG DwgImportService: Error searching for existing sketch — " &
+                ex.Message)
+        End Try
+    End Sub
+
+    ' ==================================================================
+    '  Private helper type
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Stores a single extracted line segment in Inventor cm coordinates.
+    ''' </summary>
+    Private Class ImportedSegment
+
+        Public ReadOnly X1 As Double
+        Public ReadOnly Y1 As Double
+        Public ReadOnly X2 As Double
+        Public ReadOnly Y2 As Double
+
+        Public Sub New(x1 As Double, y1 As Double, x2 As Double, y2 As Double)
+            Me.X1 = x1
+            Me.Y1 = y1
+            Me.X2 = x2
+            Me.Y2 = y2
+        End Sub
+
+    End Class
+
+End Class

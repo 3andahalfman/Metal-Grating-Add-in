@@ -1,0 +1,11 @@
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\bin\Debug\HandMadeGratingAddinPlugin.Inventor.addin
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\bin\Debug\HandMadeGratingAddinPlugin.dll
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\bin\Debug\HandMadeGratingAddinPlugin.pdb
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\bin\Debug\Autodesk.Forge.DesignAutomation.Inventor.Utils.dll
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\bin\Debug\Newtonsoft.Json.dll
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\bin\Debug\Newtonsoft.Json.xml
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\obj\Debug\HandMadeGratingAddinPlugin.csproj.AssemblyReference.cache
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\obj\Debug\HandMadeGratingAddinPlugin.csproj.CoreCompileInputs.cache
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\obj\Debug\HandMade.FB26F414.Up2Date
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\obj\Debug\HandMadeGratingAddinPlugin.dll
+C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinPlugin\obj\Debug\HandMadeGratingAddinPlugin.pdb

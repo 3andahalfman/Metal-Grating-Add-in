@@ -1,0 +1,255 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingInputForm: Version 1 code-only WinForms dialog for
+' collecting bearing bar generation parameters.
+'
+' Collects: span direction, bar depth, bar width, on-center spacing,
+'           output folder, naming prefix.
+' Validates inputs via InputValidationService before accepting.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.Drawing
+Imports System.Windows.Forms
+
+''' <summary>
+''' Modal dialog that collects Version 1 grating parameters from the user.
+''' </summary>
+Public Class GratingInputForm
+    Inherits Form
+
+    ' --- Controls ---
+    Private _cboSpanDirection As ComboBox
+    Private _txtBarDepth As TextBox
+    Private _txtBarWidth As TextBox
+    Private _txtOnCenterSpacing As TextBox
+    Private _txtOutputFolder As TextBox
+    Private _btnBrowseFolder As Button
+    Private _txtNamingPrefix As TextBox
+    Private _btnOK As Button
+    Private _btnCancel As Button
+
+    ''' <summary>
+    ''' The validated parameters. Only meaningful when DialogResult is OK.
+    ''' </summary>
+    Public Property Parameters As GratingParameters
+
+    ''' <summary>
+    ''' Creates the form and populates controls with supplied defaults.
+    ''' </summary>
+    Public Sub New(defaults As GratingParameters)
+        Parameters = defaults
+        InitializeControls()
+        PopulateDefaults(defaults)
+    End Sub
+
+    ' ==================================================================
+    '  Control layout (code-only, no designer)
+    ' ==================================================================
+
+    Private Sub InitializeControls()
+        ' --- Form ---
+        Me.Text = "Hand Made Grating — Version 1 Parameters"
+        Me.ClientSize = New Size(420, 380)
+        Me.FormBorderStyle = FormBorderStyle.FixedDialog
+        Me.MaximizeBox = False
+        Me.MinimizeBox = False
+        Me.StartPosition = FormStartPosition.CenterParent
+        Me.ShowInTaskbar = False
+
+        Dim yPos As Integer = 14
+        Dim labelX As Integer = 14
+        Dim controlX As Integer = 170
+        Dim controlWidth As Integer = 230
+        Dim rowHeight As Integer = 32
+
+        ' --- Span direction ---
+        AddLabel("Span Direction:", labelX, yPos + 3)
+        _cboSpanDirection = New ComboBox()
+        _cboSpanDirection.DropDownStyle = ComboBoxStyle.DropDownList
+        _cboSpanDirection.Location = New Point(controlX, yPos)
+        _cboSpanDirection.Size = New Size(controlWidth, 21)
+        _cboSpanDirection.Items.AddRange(New Object() {"Along X", "Along Y"})
+        Me.Controls.Add(_cboSpanDirection)
+        yPos += rowHeight + 4
+
+        ' --- Bar depth ---
+        AddLabel("Bar Depth (in):", labelX, yPos + 3)
+        _txtBarDepth = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight + 4
+
+        ' --- Bar width ---
+        AddLabel("Bar Width (in):", labelX, yPos + 3)
+        _txtBarWidth = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight + 4
+
+        ' --- On-center spacing ---
+        AddLabel("On-Center Spacing (in):", labelX, yPos + 3)
+        _txtOnCenterSpacing = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight + 4
+
+        ' --- Output folder ---
+        AddLabel("Output Folder:", labelX, yPos + 3)
+        _txtOutputFolder = New TextBox()
+        _txtOutputFolder.Location = New Point(controlX, yPos)
+        _txtOutputFolder.Size = New Size(controlWidth - 36, 21)
+        Me.Controls.Add(_txtOutputFolder)
+
+        _btnBrowseFolder = New Button()
+        _btnBrowseFolder.Text = "..."
+        _btnBrowseFolder.Location = New Point(controlX + controlWidth - 32, yPos - 1)
+        _btnBrowseFolder.Size = New Size(32, 23)
+        AddHandler _btnBrowseFolder.Click, AddressOf OnBrowseFolder
+        Me.Controls.Add(_btnBrowseFolder)
+        yPos += rowHeight + 4
+
+        ' --- Naming prefix ---
+        AddLabel("Naming Prefix:", labelX, yPos + 3)
+        _txtNamingPrefix = AddTextBox(controlX, yPos, controlWidth)
+        yPos += rowHeight + 16
+
+        ' --- Hint label ---
+        Dim hint As New Label()
+        hint.Text = "Leave Output Folder blank to use the active document folder."
+        hint.Location = New Point(labelX, yPos)
+        hint.AutoSize = True
+        hint.ForeColor = SystemColors.GrayText
+        Me.Controls.Add(hint)
+        yPos += 24
+
+        ' --- OK / Cancel ---
+        _btnOK = New Button()
+        _btnOK.Text = "OK"
+        _btnOK.Size = New Size(80, 28)
+        _btnOK.Location = New Point(Me.ClientSize.Width - 180, yPos)
+        AddHandler _btnOK.Click, AddressOf OnOKClick
+        Me.Controls.Add(_btnOK)
+
+        _btnCancel = New Button()
+        _btnCancel.Text = "Cancel"
+        _btnCancel.Size = New Size(80, 28)
+        _btnCancel.Location = New Point(Me.ClientSize.Width - 94, yPos)
+        _btnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
+        Me.Controls.Add(_btnCancel)
+
+        Me.AcceptButton = _btnOK
+        Me.CancelButton = _btnCancel
+    End Sub
+
+    Private Sub PopulateDefaults(defaults As GratingParameters)
+        If defaults.SpanDirection = SpanDirectionType.AlongY Then
+            _cboSpanDirection.SelectedIndex = 1
+        Else
+            _cboSpanDirection.SelectedIndex = 0
+        End If
+
+        _txtBarDepth.Text = defaults.BarDepth.ToString("G")
+        _txtBarWidth.Text = defaults.BarWidth.ToString("G")
+        _txtOnCenterSpacing.Text = defaults.OnCenterSpacing.ToString("G")
+        _txtOutputFolder.Text = If(defaults.OutputFolder, "")
+        _txtNamingPrefix.Text = If(defaults.NamingPrefix, "Grating")
+    End Sub
+
+    ' ==================================================================
+    '  Event handlers
+    ' ==================================================================
+
+    Private Sub OnBrowseFolder(sender As Object, e As EventArgs)
+        Using dlg As New FolderBrowserDialog()
+            dlg.Description = "Select output folder for grating files"
+            If Not String.IsNullOrWhiteSpace(_txtOutputFolder.Text) AndAlso
+               System.IO.Directory.Exists(_txtOutputFolder.Text) Then
+                dlg.SelectedPath = _txtOutputFolder.Text
+            End If
+            If dlg.ShowDialog(Me) = System.Windows.Forms.DialogResult.OK Then
+                _txtOutputFolder.Text = dlg.SelectedPath
+            End If
+        End Using
+    End Sub
+
+    Private Sub OnOKClick(sender As Object, e As EventArgs)
+        ' --- Parse numeric fields ---
+        Dim barDepth As Double
+        Dim barWidth As Double
+        Dim spacing As Double
+
+        If Not Double.TryParse(_txtBarDepth.Text.Trim(), barDepth) Then
+            ShowError("Bar Depth must be a valid number.")
+            _txtBarDepth.Focus()
+            Return
+        End If
+
+        If Not Double.TryParse(_txtBarWidth.Text.Trim(), barWidth) Then
+            ShowError("Bar Width must be a valid number.")
+            _txtBarWidth.Focus()
+            Return
+        End If
+
+        If Not Double.TryParse(_txtOnCenterSpacing.Text.Trim(), spacing) Then
+            ShowError("On-Center Spacing must be a valid number.")
+            _txtOnCenterSpacing.Focus()
+            Return
+        End If
+
+        ' --- Build parameter object ---
+        Dim result As New GratingParameters()
+        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 1,
+                                  SpanDirectionType.AlongY,
+                                  SpanDirectionType.AlongX)
+        result.BarDepth = barDepth
+        result.BarWidth = barWidth
+        result.OnCenterSpacing = spacing
+        result.OutputFolder = _txtOutputFolder.Text.Trim()
+        result.NamingPrefix = _txtNamingPrefix.Text.Trim()
+
+        ' --- Validate ---
+        Dim errors As List(Of String) = InputValidationService.Validate(result)
+
+        If errors.Count > 0 Then
+            ShowError(String.Join(vbCrLf, errors))
+            Return
+        End If
+
+        ' --- Accept ---
+        Trace.TraceInformation(": HMG: Parameters accepted — " &
+            "Direction=" & result.SpanDirection.ToString() &
+            ", Depth=" & result.BarDepth &
+            ", Width=" & result.BarWidth &
+            ", Spacing=" & result.OnCenterSpacing &
+            ", Folder=""" & result.OutputFolder & """" &
+            ", Prefix=""" & result.NamingPrefix & """")
+
+        Parameters = result
+        Me.DialogResult = System.Windows.Forms.DialogResult.OK
+        Me.Close()
+    End Sub
+
+    ' ==================================================================
+    '  Helpers
+    ' ==================================================================
+
+    Private Sub AddLabel(text As String, x As Integer, y As Integer)
+        Dim lbl As New Label()
+        lbl.Text = text
+        lbl.Location = New Point(x, y)
+        lbl.AutoSize = True
+        Me.Controls.Add(lbl)
+    End Sub
+
+    Private Function AddTextBox(x As Integer, y As Integer, w As Integer) As TextBox
+        Dim tb As New TextBox()
+        tb.Location = New Point(x, y)
+        tb.Size = New Size(w, 21)
+        Me.Controls.Add(tb)
+        Return tb
+    End Function
+
+    Private Sub ShowError(message As String)
+        MessageBox.Show(message,
+                        "Hand Made Grating — Input Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning)
+    End Sub
+
+End Class

@@ -1,0 +1,648 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' CrossBarPartGenerator: Computes cross bar positions and lengths
+' from the bearing bar layout, then creates Inventor .ipt files for
+' each unique cross bar length.
+'
+' Cross bars run perpendicular to bearing bars and pass through the
+' notches.  For each notch-column position, the generator determines
+' which bearing bars are crossed and computes the cross bar length
+' from the outer edge of the outermost bearing bars.
+'
+' Geometry per cross bar type:
+'   Round  — circle sketch on XY plane, extruded +Z by length.
+'   Flat   — rectangle sketch on XY plane (thickness × height),
+'            extruded +Z by length.
+'
+' One .ipt is generated per unique length (grouped to 4 decimal
+' places).  The result includes a length table for the fabrication
+' drawing.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Generates cross bar .ipt part files based on the bearing bar
+''' layout and cross bar notch specifications.
+''' </summary>
+Public Class CrossBarPartGenerator
+
+    Private ReadOnly _app As Application
+    Private ReadOnly _pathService As New OutputPathService()
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Computes cross bar positions and lengths, then generates
+    ''' .ipt files for each unique cross bar length.
+    ''' When perimeter is supplied, cross bar lengths are clipped to
+    ''' the actual boundary shape at each span position.
+    ''' </summary>
+    Public Function Generate(layout As BearingBarLayoutResult,
+                             params As GratingParameters,
+                             Optional perimeter As PerimeterData = Nothing) As CrossBarGenerationResult
+        Try
+            ' Validate inputs
+            If layout Is Nothing OrElse Not layout.Success Then
+                Return CrossBarGenerationResult.Failed(
+                    "No valid bearing bar layout result available.")
+            End If
+
+            If layout.Bars.Count < 2 Then
+                Return CrossBarGenerationResult.Failed(
+                    "Need at least 2 bearing bars to place cross bars.")
+            End If
+
+            ' Resolve output folder
+            Dim outputFolder As String = _pathService.ResolveOutputFolder(
+                params.OutputFolder, _app)
+            If String.IsNullOrEmpty(outputFolder) Then
+                Return CrossBarGenerationResult.Failed(
+                    "Cannot resolve output folder.")
+            End If
+            If Not Directory.Exists(outputFolder) Then
+                Try
+                    Directory.CreateDirectory(outputFolder)
+                Catch ex As Exception
+                    Return CrossBarGenerationResult.Failed(
+                        "Cannot create output folder: " & ex.Message)
+                End Try
+            End If
+
+            ' --- Step 1: Compute cross bar entries ---
+            Dim entries As List(Of CrossBarEntry) =
+                ComputeCrossBarEntries(layout, params, perimeter)
+
+            If entries.Count = 0 Then
+                Return CrossBarGenerationResult.Failed(
+                    "No cross bar positions could be computed.")
+            End If
+
+            Trace.TraceInformation(": HMG CrossBarGen: " &
+                entries.Count & " cross bar position(s) computed.")
+
+            ' --- Step 2: Group by unique length ---
+            Dim lengthGroups As Dictionary(Of String, List(Of CrossBarEntry)) =
+                GroupByLength(entries)
+
+            Trace.TraceInformation(": HMG CrossBarGen: " &
+                lengthGroups.Count & " unique length(s).")
+
+            ' --- Step 3: Get cross-section dimensions ---
+            Dim notchSpec As CrossBarNotchSpec =
+                CrossBarNotchSpec.FromParameters(params)
+
+            ' --- Step 4: Generate one .ipt per unique length ---
+            Dim files As New List(Of GeneratedCrossBarFile)
+            Dim warnings As New List(Of String)
+            Dim fileIndex As Integer = 0
+
+            For Each kvp In lengthGroups
+                fileIndex += 1
+                Dim representative As CrossBarEntry = kvp.Value(0)
+                Dim quantity As Integer = kvp.Value.Count
+
+                Dim genFile As GeneratedCrossBarFile =
+                    GenerateSingleCrossBar(
+                        representative, quantity, notchSpec,
+                        params, outputFolder, fileIndex)
+                files.Add(genFile)
+
+                If genFile.Saved Then
+                    Trace.TraceInformation(": HMG CrossBarGen:   OK — " &
+                        genFile.ToString())
+                Else
+                    Trace.TraceWarning(": HMG CrossBarGen:   FAIL — " &
+                        genFile.ToString())
+                    warnings.Add(representative.Mark & ": " &
+                        genFile.ErrorMessage)
+                End If
+            Next
+
+            Dim savedCount As Integer = 0
+            For Each f In files
+                If f.Saved Then savedCount += 1
+            Next
+
+            If savedCount = 0 Then
+                Return CrossBarGenerationResult.Failed(
+                    "All cross bar files failed to generate.")
+            End If
+
+            Trace.TraceInformation(": HMG CrossBarGen: Complete — " &
+                savedCount & "/" & files.Count & " files saved, " &
+                entries.Count & " total cross bars.")
+
+            Return CrossBarGenerationResult.Succeeded(
+                entries, files, outputFolder, warnings)
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG CrossBarGen: Unexpected error — " &
+                ex.ToString())
+            Return CrossBarGenerationResult.Failed(
+                "Cross bar generation error: " & ex.Message)
+        End Try
+    End Function
+
+    ' ==================================================================
+    '  Step 1: Compute cross bar positions and lengths
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Determines every cross bar position along the bearing bar span
+    ''' direction and computes each cross bar's length from the lateral
+    ''' extent of bearing bars it crosses.
+    ''' When banded and a perimeter is supplied, the cross bar lateral
+    ''' extent is clipped to the actual boundary polygon at each span
+    ''' position, so cross bars are trimmed to fit cutouts and skews.
+    ''' </summary>
+    Private Function ComputeCrossBarEntries(
+            layout As BearingBarLayoutResult,
+            params As GratingParameters,
+            perimeter As PerimeterData) As List(Of CrossBarEntry)
+
+        Dim entries As New List(Of CrossBarEntry)
+
+        ' Determine span and lateral axes
+        Dim spanIdx As Integer   ' 0=X, 1=Y — axis bearing bars run along
+        Dim lateralIdx As Integer ' perpendicular axis
+        If params.SpanDirection = SpanDirectionType.AlongX Then
+            spanIdx = 0 : lateralIdx = 1
+        Else
+            spanIdx = 1 : lateralIdx = 0
+        End If
+
+        ' Find the global span range (along bearing bar direction)
+        Dim spanMin As Double = Double.MaxValue
+        Dim spanMax As Double = Double.MinValue
+        For Each bar In layout.Bars
+            Dim s0 As Double = Math.Min(bar.StartPoint(spanIdx),
+                                         bar.EndPoint(spanIdx))
+            Dim s1 As Double = Math.Max(bar.StartPoint(spanIdx),
+                                         bar.EndPoint(spanIdx))
+            If s0 < spanMin Then spanMin = s0
+            If s1 > spanMax Then spanMax = s1
+        Next
+
+        ' Compute absolute cross bar positions along the span direction.
+        ' Start from spanMin + firstOffset and step by crossBarOC.
+        Dim crossBarOC As Double = params.CrossBarOnCenter
+        Dim firstOffset As Double = params.FirstCrossBarOffset
+        If crossBarOC <= 0 Then Return entries
+
+        Dim positions As New List(Of Double)
+        Dim lastMirrorPos As Double = spanMax - firstOffset
+        Dim pos As Double = spanMin + firstOffset
+        Do While pos <= lastMirrorPos + 0.001
+            positions.Add(pos)
+            pos += crossBarOC
+        Loop
+
+        ' Ensure the last cross bar mirrors the first: same distance
+        ' from the far edge as the first cross bar is from the near edge.
+        If positions.Count > 0 AndAlso lastMirrorPos > spanMin + firstOffset + 0.001 Then
+            Dim lastPos As Double = positions(positions.Count - 1)
+            If Math.Abs(lastMirrorPos - lastPos) > 0.01 Then
+                positions.Add(lastMirrorPos)
+            End If
+        End If
+
+        ' Build polygon edge list for boundary-aware clipping
+        Dim isBanded As Boolean =
+            (params.Banding = BandingOptionType.Banded)
+        Dim hasPolygon As Boolean =
+            (perimeter IsNot Nothing AndAlso
+             perimeter.OuterLoopVertices IsNot Nothing AndAlso
+             perimeter.OuterLoopVertices.Count >= 3)
+        Dim polyEdges As List(Of Double()()) = Nothing
+        If hasPolygon Then
+            Dim closedPoly As List(Of Double()) =
+                EnsurePolygonClosed(perimeter.OuterLoopVertices)
+            polyEdges = BuildPolygonEdges(closedPoly)
+        End If
+
+        ' Fallback fixed bounds (used when no polygon is available)
+        Dim perimeterLatMin As Double = layout.BoundsMin(lateralIdx)
+        Dim perimeterLatMax As Double = layout.BoundsMax(lateralIdx)
+
+        ' For each cross bar position, find bearing bars it crosses
+        Dim halfBarWidth As Double = params.BarWidth / 2.0
+        Dim index As Integer = 0
+
+        For Each cbPos As Double In positions
+            ' Find bearing bars whose span range includes this position
+            Dim crossedLaterals As New List(Of Double)
+            For Each bar In layout.Bars
+                Dim barSpanMin As Double = Math.Min(
+                    bar.StartPoint(spanIdx), bar.EndPoint(spanIdx))
+                Dim barSpanMax As Double = Math.Max(
+                    bar.StartPoint(spanIdx), bar.EndPoint(spanIdx))
+
+                ' Cross bar passes through this bearing bar if cbPos
+                ' is within (or very near) the bar's span range
+                If cbPos >= barSpanMin - 0.001 AndAlso
+                   cbPos <= barSpanMax + 0.001 Then
+                    crossedLaterals.Add(bar.LateralPosition)
+                End If
+            Next
+
+            If crossedLaterals.Count < 2 Then Continue For
+
+            crossedLaterals.Sort()
+
+            Dim latMin As Double
+            Dim latMax As Double
+
+            If isBanded AndAlso hasPolygon Then
+                ' Banded with polygon: clip cross bar lateral extent to
+                ' the actual boundary shape at this span position.
+                ' Cast a scan line along the lateral axis at cbPos and
+                ' find where it intersects the perimeter polygon.
+                Dim lateralHits As List(Of Double) =
+                    FindLateralIntersections(polyEdges, spanIdx, lateralIdx, cbPos)
+
+                If lateralHits.Count >= 2 Then
+                    lateralHits.Sort()
+                    ' Use outermost intersection pair as the boundary
+                    latMin = lateralHits(0) + halfBarWidth
+                    latMax = lateralHits(lateralHits.Count - 1) - halfBarWidth
+                Else
+                    ' Fallback to fixed bounds if intersection fails
+                    latMin = perimeterLatMin + halfBarWidth
+                    latMax = perimeterLatMax - halfBarWidth
+                End If
+            ElseIf isBanded Then
+                ' Banded without polygon: use fixed perimeter bounds
+                latMin = perimeterLatMin + halfBarWidth
+                latMax = perimeterLatMax - halfBarWidth
+            Else
+                ' Open-ended: cross bar spans from outermost bearing bar to
+                ' outermost bearing bar
+                latMin = crossedLaterals(0)
+                latMax = crossedLaterals(crossedLaterals.Count - 1)
+            End If
+
+            ' Skip if clipped to zero or negative length
+            If latMax - latMin < 0.001 Then Continue For
+
+            ' Cross bar length = edge-to-edge of outermost bars
+            ' (center-to-center + one full bar width)
+            Dim cbLength As Double = (latMax - latMin) + params.BarWidth
+
+            index += 1
+            Dim entry As New CrossBarEntry()
+            entry.Index = index
+            entry.AbsolutePosition = cbPos
+            entry.Length = cbLength
+            entry.BarsCrossed = crossedLaterals.Count
+            entry.LateralMin = latMin
+            entry.LateralMax = latMax
+            entry.Mark = "CB-" & index.ToString("000")
+
+            entries.Add(entry)
+        Next
+
+        Return entries
+    End Function
+
+    ' ==================================================================
+    '  Step 2: Group by unique length
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Groups cross bar entries by length (rounded to 4 decimal places).
+    ''' Returns a dictionary keyed by the formatted length string.
+    ''' </summary>
+    Private Function GroupByLength(
+            entries As List(Of CrossBarEntry)) As Dictionary(Of String, List(Of CrossBarEntry))
+
+        Dim groups As New Dictionary(Of String, List(Of CrossBarEntry))
+        For Each entry In entries
+            Dim key As String = entry.Length.ToString("F4")
+            If Not groups.ContainsKey(key) Then
+                groups(key) = New List(Of CrossBarEntry)
+            End If
+            groups(key).Add(entry)
+        Next
+        Return groups
+    End Function
+
+    ' ==================================================================
+    '  Step 4: Generate a single cross bar .ipt
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Creates a single cross bar .ipt file.
+    ''' Round cross bars: circle sketch extruded to length.
+    ''' Flat cross bars: rectangle sketch extruded to length.
+    ''' </summary>
+    Private Function GenerateSingleCrossBar(
+            entry As CrossBarEntry,
+            quantity As Integer,
+            notchSpec As CrossBarNotchSpec,
+            params As GratingParameters,
+            outputFolder As String,
+            fileIndex As Integer) As GeneratedCrossBarFile
+
+        Dim result As New GeneratedCrossBarFile()
+        result.SourceEntry = entry
+        result.Quantity = quantity
+
+        Dim partDoc As PartDocument = Nothing
+
+        Try
+            ' Build file path: {Prefix}_CB{Index:000}.ipt
+            Dim safePfx As String = SanitizeFileName(
+                If(params.NamingPrefix, "Grating"))
+            Dim baseName As String = safePfx & "_CB" & fileIndex.ToString("000")
+            Dim fileName As String = baseName & ".ipt"
+            Dim fullPath As String = IO.Path.Combine(outputFolder, fileName)
+
+            ' Avoid overwriting
+            If IO.File.Exists(fullPath) Then
+                Dim counter As Integer = 1
+                Do
+                    fileName = baseName & "_" & counter & ".ipt"
+                    fullPath = IO.Path.Combine(outputFolder, fileName)
+                    counter += 1
+                Loop While IO.File.Exists(fullPath) AndAlso counter < 1000
+            End If
+
+            result.FilePath = fullPath
+            result.FileName = fileName
+
+            ' Convert to cm (Inventor internal units)
+            Dim lengthCm As Double = entry.Length * 2.54
+
+            ' Create part document
+            Dim templatePath As String = GetPartTemplatePath()
+            partDoc = CType(
+                _app.Documents.Add(DocumentTypeEnum.kPartDocumentObject,
+                                    templatePath, False),
+                PartDocument)
+
+            Dim compDef As PartComponentDefinition = partDoc.ComponentDefinition
+            Dim tg As TransientGeometry = _app.TransientGeometry
+
+            ' Sketch the cross-section on XY plane
+            Dim sketch As PlanarSketch =
+                compDef.Sketches.Add(compDef.WorkPlanes.Item(3))
+
+            If notchSpec.IsRound Then
+                ' Circle centered at origin (actual bar diameter, not slot width)
+                Dim radiusCm As Double = (notchSpec.CrossBarDiameter * 2.54) / 2.0
+                sketch.SketchCircles.AddByCenterRadius(
+                    tg.CreatePoint2d(0, 0), radiusCm)
+            Else
+                ' Rectangle: thickness (X) × height (Y) centered at origin
+                Dim thicknessCm As Double = notchSpec.CrossBarDiameter * 2.54
+                Dim heightCm As Double = GetFlatBarHeight(params.CrossBar) * 2.54
+                Dim halfT As Double = thicknessCm / 2.0
+                Dim halfH As Double = heightCm / 2.0
+                sketch.SketchLines.AddAsTwoPointRectangle(
+                    tg.CreatePoint2d(-halfT, -halfH),
+                    tg.CreatePoint2d(halfT, halfH))
+            End If
+
+            ' Profile and extrude along +Z by length
+            Dim profile As Profile = sketch.Profiles.AddForSolid()
+            Dim extDef As ExtrudeDefinition =
+                compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                    profile, PartFeatureOperationEnum.kNewBodyOperation)
+            extDef.SetDistanceExtent(
+                lengthCm,
+                PartFeatureExtentDirectionEnum.kPositiveExtentDirection)
+            compDef.Features.ExtrudeFeatures.Add(extDef)
+
+            ' Set iProperties
+            SetCustomProperty(partDoc, "HMG_Type", "CrossBar")
+            SetCustomProperty(partDoc, "HMG_Mark", entry.Mark)
+            SetCustomProperty(partDoc, "HMG_Length_in",
+                entry.Length.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_Quantity",
+                quantity.ToString())
+            SetCustomProperty(partDoc, "HMG_CrossBarType",
+                CrossBarTypeHelper.GetDisplayName(params.CrossBar))
+            SetCustomProperty(partDoc, "HMG_IsRound",
+                notchSpec.IsRound.ToString())
+            If notchSpec.IsRound Then
+                SetCustomProperty(partDoc, "HMG_Diameter_in",
+                    notchSpec.CrossBarDiameter.ToString("F4"))
+            Else
+                SetCustomProperty(partDoc, "HMG_Thickness_in",
+                    notchSpec.CrossBarDiameter.ToString("F4"))
+                SetCustomProperty(partDoc, "HMG_Height_in",
+                    GetFlatBarHeight(params.CrossBar).ToString("F4"))
+            End If
+
+            ' Save
+            partDoc.SaveAs(fullPath, False)
+            result.Saved = True
+
+        Catch ex As Exception
+            result.Saved = False
+            result.ErrorMessage = ex.Message
+        Finally
+            If partDoc IsNot Nothing Then
+                Try
+                    partDoc.Close(True)
+                Catch
+                End Try
+            End If
+        End Try
+
+        Return result
+    End Function
+
+    ' ==================================================================
+    '  Helpers
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Returns the height (tall dimension) of a flat/rectangular
+    ''' cross bar type in inches.
+    ''' </summary>
+    Private Function GetFlatBarHeight(crossBar As CrossBarType) As Double
+        Select Case crossBar
+            Case CrossBarType.Flat_1_4_x_1
+                Return 1.0
+            Case CrossBarType.Flat_1_4_x_1_1_4
+                Return 1.25
+            Case CrossBarType.Flat_3_8_x_1
+                Return 1.0
+            Case CrossBarType.Flat_3_8_x_1_1_4
+                Return 1.25
+            Case Else
+                ' Round bars don't have a height; return 1.0 as fallback
+                Return 1.0
+        End Select
+    End Function
+
+    ''' <summary>
+    ''' Returns the best available Part template file path.
+    ''' Same strategy as BearingBarPartGenerator.
+    ''' </summary>
+    Private Function GetPartTemplatePath() As String
+        Try
+            Dim p As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kPartDocumentObject,
+                SystemOfMeasureEnum.kEnglishSystemOfMeasure)
+            If Not String.IsNullOrEmpty(p) AndAlso IO.File.Exists(p) Then
+                Return p
+            End If
+        Catch
+        End Try
+
+        Try
+            Dim p As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kPartDocumentObject,
+                SystemOfMeasureEnum.kMetricSystemOfMeasure)
+            If Not String.IsNullOrEmpty(p) AndAlso IO.File.Exists(p) Then
+                Return p
+            End If
+        Catch
+        End Try
+
+        Try
+            Dim templateDir As String =
+                _app.DesignProjectManager.ActiveDesignProject.TemplateDir
+            If Not String.IsNullOrEmpty(templateDir) AndAlso
+               Directory.Exists(templateDir) Then
+                For Each candidate As String In {"Standard (in).ipt", "Standard.ipt"}
+                    Dim full As String = IO.Path.Combine(templateDir, candidate)
+                    If IO.File.Exists(full) Then Return full
+                Next
+                Dim any() As String = Directory.GetFiles(templateDir, "*.ipt")
+                If any.Length > 0 Then Return any(0)
+            End If
+        Catch
+        End Try
+
+        Return ""
+    End Function
+
+    ''' <summary>
+    ''' Sets a custom iProperty on the part document.
+    ''' </summary>
+    Private Sub SetCustomProperty(doc As PartDocument,
+                                   propName As String,
+                                   propValue As String)
+        Try
+            Dim customSet As PropertySet = doc.PropertySets.Item(
+                "Inventor User Defined Properties")
+            Try
+                Dim existing As [Property] = customSet.Item(propName)
+                existing.Value = propValue
+                Return
+            Catch
+            End Try
+            customSet.Add(propValue, propName)
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG CrossBarGen: Could not set property '" &
+                propName & "': " & ex.Message)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Removes characters that are invalid in file names.
+    ''' </summary>
+    Private Function SanitizeFileName(name As String) As String
+        Dim invalid() As Char = IO.Path.GetInvalidFileNameChars()
+        Dim result As New System.Text.StringBuilder()
+        For Each c As Char In name
+            If Array.IndexOf(invalid, c) < 0 Then
+                result.Append(c)
+            Else
+                result.Append("_"c)
+            End If
+        Next
+        If result.Length = 0 Then Return "Part"
+        Return result.ToString()
+    End Function
+
+    ' ==================================================================
+    '  Polygon intersection helpers (boundary-aware cross bar clipping)
+    ' ==================================================================
+
+    Private Const PolyTolerance As Double = 0.0001
+
+    ''' <summary>
+    ''' Ensures the polygon vertex list is closed (last vertex equals first).
+    ''' </summary>
+    Private Shared Function EnsurePolygonClosed(
+            vertices As List(Of Double())) As List(Of Double())
+        Dim result As New List(Of Double())(vertices)
+        Dim first As Double() = result(0)
+        Dim last As Double() = result(result.Count - 1)
+        If Math.Abs(first(0) - last(0)) > PolyTolerance OrElse
+           Math.Abs(first(1) - last(1)) > PolyTolerance Then
+            result.Add(New Double() {first(0), first(1)})
+        End If
+        Return result
+    End Function
+
+    ''' <summary>
+    ''' Builds directed edge pairs from the closed polygon vertex list.
+    ''' </summary>
+    Private Shared Function BuildPolygonEdges(
+            poly As List(Of Double())) As List(Of Double()())
+        Dim edges As New List(Of Double()())
+        For i As Integer = 0 To poly.Count - 2
+            edges.Add(New Double()() {poly(i), poly(i + 1)})
+        Next
+        Return edges
+    End Function
+
+    ''' <summary>
+    ''' Casts a scan line along the lateral axis at the given span
+    ''' position and finds all lateral-axis intersections with the
+    ''' polygon edges.  Same algorithm as
+    ''' BearingBarLayoutService.FindScanIntersections but parameterised
+    ''' for cross bar use (scan axis = span, hit axis = lateral).
+    ''' </summary>
+    Private Shared Function FindLateralIntersections(
+            edges As List(Of Double()()),
+            spanIdx As Integer,
+            lateralIdx As Integer,
+            spanPos As Double) As List(Of Double)
+        Dim hits As New List(Of Double)
+
+        For Each edge As Double()() In edges
+            Dim a As Double() = edge(0)
+            Dim b As Double() = edge(1)
+
+            Dim aSpan As Double = a(spanIdx)
+            Dim bSpan As Double = b(spanIdx)
+
+            ' Skip edges entirely on one side (half-open interval)
+            Dim minSpan As Double = Math.Min(aSpan, bSpan)
+            Dim maxSpan As Double = Math.Max(aSpan, bSpan)
+
+            If spanPos < minSpan - PolyTolerance OrElse
+               spanPos >= maxSpan - PolyTolerance Then
+                If Math.Abs(spanPos - maxSpan) < PolyTolerance Then
+                    ' Half-open: skip to avoid double-counting at shared vertices
+                End If
+                Continue For
+            End If
+
+            ' Edge parallel to scan line (degenerate)
+            If Math.Abs(bSpan - aSpan) < PolyTolerance Then
+                Continue For
+            End If
+
+            ' Linear interpolation to find lateral coordinate at spanPos
+            Dim t As Double = (spanPos - aSpan) / (bSpan - aSpan)
+            Dim lateralHit As Double = a(lateralIdx) + t * (b(lateralIdx) - a(lateralIdx))
+            hits.Add(lateralHit)
+        Next
+
+        Return hits
+    End Function
+
+End Class

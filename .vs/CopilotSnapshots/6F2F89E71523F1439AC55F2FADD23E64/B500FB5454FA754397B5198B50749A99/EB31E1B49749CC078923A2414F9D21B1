@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace>HandMadeGratingAddinVB</RootNamespace>
+    <AssemblyName>HandMadeGratingAddinVB</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <OptionStrict>Off</OptionStrict>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionInfer>On</OptionInfer>
+    <InventorBinFolder>C:\Program Files\Autodesk\Inventor 2024\Bin</InventorBinFolder>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Autodesk.Inventor.Interop">
+      <SpecificVersion>False</SpecificVersion>
+      <EmbedInteropTypes>True</EmbedInteropTypes>
+      <HintPath>$(InventorBinFolder)\Public Assemblies\autodesk.inventor.interop.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="HandMadeGratingAddinVB.X.manifest" />
+    <Content Include="PackageContents.xml" />
+    <Content Include="HandMadeGratingAddinVB.Inventor.addin">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\GratingIcon16.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\GratingIcon32.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <EmbeddedResource Include="Resources\BAR-GRATING-INFO-768x552.jpg" />
+    <EmbeddedResource Include="Resources\icons-grating-pacific_grating-pacific-logo.png" />
+  </ItemGroup>
+
+  <Target Name="AfterBuild" AfterTargets="Build">
+    <ItemGroup>
+      <PluginBundle Include="$(TargetDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="$(ProjectDir)PackageContents.xml" DestinationFolder="$(TargetDir)..\Bundle\$(AssemblyName).bundle" />
+    <Copy SourceFiles="@(PluginBundle)" DestinationFolder="$(TargetDir)..\Bundle\$(AssemblyName).bundle\Contents\" />
+    <MakeDir Directories="$(ProjectDir)..\Output" />
+    <ZipDirectory SourceDirectory="$(TargetDir)..\Bundle" DestinationFile="$(ProjectDir)..\Output\$(AssemblyName).bundle.zip" Overwrite="true" />
+  </Target>
+
+</Project>

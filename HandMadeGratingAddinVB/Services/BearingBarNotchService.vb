@@ -1,0 +1,183 @@
+'////////////////////////////////////////////////////////////////////
+' Metal Bar Grating Addin - VB.NET
+'
+' BearingBarNotchService: Computes cross-rod notch positions along a
+' bearing bar and builds the 2D side-profile point list that includes
+' notch cutouts from the top edge — semicircular for round cross bars,
+' rectangular for flat cross bars.
+'
+' The profile is sketched on the XZ plane (length x depth) and
+' extruded along +Y for the bar width.  This mirrors the real
+' laser-cut plate geometry used in metal bar grating manufacturing.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+
+''' <summary>
+''' Computes cross-rod notch positions and builds the bearing bar
+''' side profile including notch cutouts.
+''' </summary>
+Public Class BearingBarNotchService
+
+    ''' <summary>
+    ''' Computes the X-axis center positions (inches) of notches along
+    ''' a bearing bar of the given length.
+    ''' Positions start at <paramref name="firstOffsetIn"/> and repeat
+    ''' every <paramref name="crossBarOCIn"/> inches.  Only positions
+    ''' where the full slot fits within the bar length are included.
+    ''' </summary>
+    Public Function ComputeNotchPositions(barLengthIn As Double,
+                                          firstOffsetIn As Double,
+                                          crossBarOCIn As Double,
+                                          slotWidthIn As Double) As List(Of Double)
+        Dim positions As New List(Of Double)
+
+        If crossBarOCIn <= 0 OrElse slotWidthIn <= 0 OrElse barLengthIn <= 0 Then
+            Return positions
+        End If
+
+        Dim halfSlot As Double = slotWidthIn / 2.0
+        Dim pos As Double = firstOffsetIn
+
+        Do While pos < barLengthIn + 0.001
+            ' Include only if the full slot fits within the bar
+            If (pos - halfSlot) >= -0.001 AndAlso
+               (pos + halfSlot) <= (barLengthIn + 0.001) Then
+                positions.Add(pos)
+            End If
+            pos += crossBarOCIn
+        Loop
+
+        ' Safety: remove overlapping slots
+        If positions.Count > 1 Then
+            Dim filtered As New List(Of Double)
+            filtered.Add(positions(0))
+            For i As Integer = 1 To positions.Count - 1
+                If (positions(i) - positions(i - 1)) >= slotWidthIn - 0.001 Then
+                    filtered.Add(positions(i))
+                Else
+                    Trace.TraceWarning(": HMG Notch: Skipped overlapping notch at " &
+                        positions(i).ToString("F4") & """")
+                End If
+            Next
+            Return filtered
+        End If
+
+        Return positions
+    End Function
+
+    ''' <summary>
+    ''' Builds the 2D side-profile points for a bearing bar including
+    ''' notch cutouts from the top edge.
+    ''' 
+    ''' Coordinate space (XZ plane sketch):
+    '''   X = bar length direction (0 → barLengthCm)
+    '''   Y_sketch = bar depth direction (0 → barDepthCm, mapped to world Z)
+    ''' 
+    ''' All dimensions in centimeters (Inventor internal units).
+    ''' Notch positions are provided in inches and converted internally.
+    ''' 
+    ''' Round cross bars produce semicircular notch arcs; rectangular
+    ''' cross bars produce rectangular notch cutouts.
+    ''' 
+    ''' Returns a list of {X, Z} pairs forming a closed polygon path.
+    ''' </summary>
+    Public Function BuildNotchedProfile(barLengthCm As Double,
+                                         barDepthCm As Double,
+                                         notchSpec As CrossBarNotchSpec,
+                                         notchPositionsIn As List(Of Double)) As List(Of Double())
+        Dim points As New List(Of Double())
+
+        Dim slotWidthCm As Double = notchSpec.SlotWidth * 2.54
+        Dim slotDepthCm As Double = notchSpec.SlotDepth * 2.54
+        Dim halfSlotCm As Double = slotWidthCm / 2.0
+
+        ' Convert notch positions from inches to cm and sort
+        Dim positionsCm As New List(Of Double)
+        For Each posIn As Double In notchPositionsIn
+            positionsCm.Add(posIn * 2.54)
+        Next
+        positionsCm.Sort()
+
+        Dim topZ As Double = barDepthCm
+        Dim notchBottomZ As Double = barDepthCm - slotDepthCm
+
+        ' Bottom-left corner
+        points.Add(New Double() {0, 0})
+
+        ' Up the left side
+        points.Add(New Double() {0, topZ})
+
+        ' Top edge left-to-right with notch indentations
+        Dim currentX As Double = 0.0
+
+        For Each cx As Double In positionsCm
+            Dim leftX As Double = Math.Max(cx - halfSlotCm, 0)
+            Dim rightX As Double = Math.Min(cx + halfSlotCm, barLengthCm)
+
+            ' Flat top segment to the notch's left edge (skip if no gap)
+            If leftX - currentX > 0.0001 Then
+                points.Add(New Double() {leftX, topZ})
+            End If
+
+            If notchSpec.IsRound Then
+                ' Detailed round notch: straight walls down, then semicircular arc
+                Dim straightCm As Double = notchSpec.StraightDepth * 2.54
+                Dim arcRadiusCm As Double = notchSpec.BottomRadius * 2.54
+                Dim arcCenterZ As Double = topZ - straightCm
+
+                ' Left wall down (only if there's a straight portion)
+                If straightCm > 0.0001 Then
+                    points.Add(New Double() {leftX, arcCenterZ})
+                End If
+
+                ' Semicircular arc at the bottom
+                Const arcSegments As Integer = 12
+                For i As Integer = 0 To arcSegments
+                    Dim angle As Double = Math.PI * CDbl(i) / CDbl(arcSegments)
+                    Dim ax As Double = cx - halfSlotCm * Math.Cos(angle)
+                    Dim az As Double = arcCenterZ - arcRadiusCm * Math.Sin(angle)
+                    points.Add(New Double() {ax, az})
+                Next
+
+                ' Right wall up (only needed when straight walls exist,
+                ' otherwise arc already ends at topZ)
+                If straightCm > 0.0001 Then
+                    points.Add(New Double() {rightX, topZ})
+                End If
+            Else
+                ' Rectangular notch: down, across, up
+                points.Add(New Double() {leftX, notchBottomZ})
+                points.Add(New Double() {rightX, notchBottomZ})
+                points.Add(New Double() {rightX, topZ})
+            End If
+
+            currentX = rightX
+        Next
+
+        ' Flat top from last notch to the right edge
+        If barLengthCm - currentX > 0.0001 Then
+            points.Add(New Double() {barLengthCm, topZ})
+        End If
+
+        ' Down the right side
+        points.Add(New Double() {barLengthCm, 0})
+
+        Return points
+    End Function
+
+    ''' <summary>
+    ''' Builds a simple rectangular profile (no notches).
+    ''' Used when no valid notch positions exist for a bar.
+    ''' </summary>
+    Public Function BuildPlainProfile(barLengthCm As Double,
+                                       barDepthCm As Double) As List(Of Double())
+        Dim points As New List(Of Double())
+        points.Add(New Double() {0, 0})
+        points.Add(New Double() {0, barDepthCm})
+        points.Add(New Double() {barLengthCm, barDepthCm})
+        points.Add(New Double() {barLengthCm, 0})
+        Return points
+    End Function
+
+End Class

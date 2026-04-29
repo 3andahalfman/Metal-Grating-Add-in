@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity name="HandMadeGratingAddinPlugin" version="1.0.0.0"></assemblyIdentity>
+  <clrClass clsid="{b2360204-0f9a-4ae4-8261-132d1600494b}" progid="HandMadeGratingAddinPlugin.PluginServer" threadingModel="Both" name="HandMadeGratingAddinPlugin.PluginServer"></clrClass>
+  <file name="HandMadeGratingAddinPlugin.dll" hashalg="SHA1"></file>
+</assembly>

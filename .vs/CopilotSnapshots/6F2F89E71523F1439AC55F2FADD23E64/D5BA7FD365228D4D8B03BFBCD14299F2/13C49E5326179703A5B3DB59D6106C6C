@@ -1,0 +1,144 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' CrossBarGenerationResult: Aggregates the output of the cross bar
+' part generation phase — all cross bar entries, generated files,
+' and summary data including a length table.
+'////////////////////////////////////////////////////////////////////
+
+''' <summary>
+''' Result of the cross bar part generation pass.
+''' </summary>
+Public Class CrossBarGenerationResult
+
+    ''' <summary>True if at least one file was generated.</summary>
+    Public Property Success As Boolean
+
+    ''' <summary>Human-readable error when Success is False.</summary>
+    Public Property ErrorMessage As String
+
+    ''' <summary>All computed cross bar entries (one per position).</summary>
+    Public Property Entries As List(Of CrossBarEntry)
+
+    ''' <summary>Per-file generation records (one per unique length).</summary>
+    Public Property Files As List(Of GeneratedCrossBarFile)
+
+    ''' <summary>Non-fatal warnings.</summary>
+    Public Property Warnings As List(Of String)
+
+    ''' <summary>Resolved output folder that was used.</summary>
+    Public Property OutputFolder As String
+
+    ' --- Computed helpers ---
+
+    ''' <summary>Total number of cross bar positions computed.</summary>
+    Public ReadOnly Property TotalCrossBars As Integer
+        Get
+            Return If(Entries IsNot Nothing, Entries.Count, 0)
+        End Get
+    End Property
+
+    ''' <summary>Number of unique lengths (= number of .ipt files).</summary>
+    Public ReadOnly Property UniqueLengths As Integer
+        Get
+            Return If(Files IsNot Nothing, Files.Count, 0)
+        End Get
+    End Property
+
+    ''' <summary>Number of .ipt files saved successfully.</summary>
+    Public ReadOnly Property TotalSaved As Integer
+        Get
+            If Files Is Nothing Then Return 0
+            Dim count As Integer = 0
+            For Each f In Files
+                If f.Saved Then count += 1
+            Next
+            Return count
+        End Get
+    End Property
+
+    ' --- Factory helpers ---
+
+    Public Shared Function Succeeded(entries As List(Of CrossBarEntry),
+                                     files As List(Of GeneratedCrossBarFile),
+                                     outputFolder As String,
+                                     warnings As List(Of String)) As CrossBarGenerationResult
+        Return New CrossBarGenerationResult With {
+            .Success = True,
+            .Entries = entries,
+            .Files = files,
+            .OutputFolder = outputFolder,
+            .Warnings = If(warnings, New List(Of String))
+        }
+    End Function
+
+    Public Shared Function Failed(message As String) As CrossBarGenerationResult
+        Return New CrossBarGenerationResult With {
+            .Success = False,
+            .ErrorMessage = message,
+            .Entries = New List(Of CrossBarEntry),
+            .Files = New List(Of GeneratedCrossBarFile),
+            .Warnings = New List(Of String)
+        }
+    End Function
+
+    ''' <summary>
+    ''' Builds a cross bar length table suitable for the fabrication
+    ''' drawing.  Groups cross bars by length, lists mark ranges and
+    ''' quantities.
+    ''' </summary>
+    Public Function BuildLengthTable() As String
+        If Entries Is Nothing OrElse Entries.Count = 0 Then
+            Return "(No cross bars)"
+        End If
+
+        ' Group by length (round to 4 decimal places to merge near-equal)
+        Dim groups As New Dictionary(Of String, List(Of CrossBarEntry))
+        For Each entry In Entries
+            Dim key As String = entry.Length.ToString("F4")
+            If Not groups.ContainsKey(key) Then
+                groups(key) = New List(Of CrossBarEntry)
+            End If
+            groups(key).Add(entry)
+        Next
+
+        Dim sb As New System.Text.StringBuilder()
+        sb.AppendLine("Cross Bar Length Table")
+        sb.AppendLine("——————————————————————")
+        For Each kvp In groups
+            Dim lengthStr As String = kvp.Key & """"
+            Dim qty As Integer = kvp.Value.Count
+            Dim firstMark As String = kvp.Value(0).Mark
+            Dim lastMark As String = kvp.Value(kvp.Value.Count - 1).Mark
+            Dim markRange As String = If(qty = 1, firstMark,
+                                         firstMark & " – " & lastMark)
+            sb.AppendLine("  " & lengthStr & "  x " & qty &
+                          "   (" & markRange & ")")
+        Next
+        sb.AppendLine("Total: " & Entries.Count & " cross bars, " &
+                      groups.Count & " unique length(s)")
+        Return sb.ToString()
+    End Function
+
+    ''' <summary>Builds a multi-line summary string for UI/logging.</summary>
+    Public Function ToSummary() As String
+        If Not Success Then Return "Cross bar generation failed: " & ErrorMessage
+
+        Dim sb As New System.Text.StringBuilder()
+        sb.AppendLine("Cross Bars")
+        sb.AppendLine("—————————————————————————————————")
+        sb.AppendLine("Cross bars total : " & TotalCrossBars)
+        sb.AppendLine("Unique lengths   : " & UniqueLengths)
+        sb.AppendLine("Files saved      : " & TotalSaved)
+
+        If Warnings IsNot Nothing AndAlso Warnings.Count > 0 Then
+            sb.AppendLine()
+            For Each w In Warnings
+                sb.AppendLine("  • " & w)
+            Next
+        End If
+
+        Return sb.ToString()
+    End Function
+
+End Class

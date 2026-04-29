@@ -1,0 +1,8 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Addin Type="Plugin">
+  <ClassId>{37b59293-54b3-43f0-8166-ab23d5cf61ed}</ClassId>
+  <ClientId>{37b59293-54b3-43f0-8166-ab23d5cf61ed}</ClientId>
+  <DisplayName>HandMadeGratingAddinVB</DisplayName>
+  <Description>Hand Made Grating Inventor Add-In (VB.NET)</Description>
+  <Assembly>HandMadeGratingAddinVB.dll</Assembly>
+</Addin>

@@ -1,0 +1,61 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET Inventor Add-In
+'
+' StandardAddInServer: Entry point that Inventor loads via COM.
+' Implements ApplicationAddInServer to hook into the Inventor lifecycle.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.Reflection
+Imports System.Runtime.InteropServices
+Imports Inventor
+
+<Guid("37b59293-54b3-43f0-8166-ab23d5cf61ed")>
+Public Class StandardAddInServer
+    Implements ApplicationAddInServer
+
+    Private _inventorServer As InventorServer
+    Private _automation As GratingAutomation
+
+    ''' <summary>
+    ''' Exposes the automation object to Inventor / Design Automation.
+    ''' </summary>
+    Public ReadOnly Property Automation As Object Implements ApplicationAddInServer.Automation
+        Get
+            Return _automation
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Called by Inventor when the add-in is loaded.
+    ''' </summary>
+    Public Sub Activate(addInSiteObject As ApplicationAddInSite, firstTime As Boolean) Implements ApplicationAddInServer.Activate
+        Trace.TraceInformation(": HandMadeGratingAddinVB (" &
+                               Assembly.GetExecutingAssembly().GetName().Version.ToString(4) &
+                               "): initializing... ")
+
+        _inventorServer = addInSiteObject.InventorServer
+        _automation = New GratingAutomation(_inventorServer)
+    End Sub
+
+    ''' <summary>
+    ''' Called by Inventor when the add-in is unloaded.
+    ''' </summary>
+    Public Sub Deactivate() Implements ApplicationAddInServer.Deactivate
+        Trace.TraceInformation(": HandMadeGratingAddinVB: deactivating... ")
+
+        Marshal.ReleaseComObject(_inventorServer)
+        _inventorServer = Nothing
+
+        GC.Collect()
+        GC.WaitForPendingFinalizers()
+    End Sub
+
+    ''' <summary>
+    ''' Obsolete method required by the interface.
+    ''' </summary>
+    Public Sub ExecuteCommand(CommandID As Integer) Implements ApplicationAddInServer.ExecuteCommand
+        ' Obsolete - not used
+    End Sub
+
+End Class

@@ -1,0 +1,209 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' BearingBarPartGenerator: Creates Inventor .ipt files for each
+' trimmed bearing bar from the Phase 5 layout result.
+'
+' Builds simple rectangular bar geometry:
+'   - Sketch rectangle on XY plane (length x width)
+'   - Extrude to bar depth
+' Structured so manufacturing profiles/notches can be added later.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Generates individual bearing bar .ipt part files.
+''' </summary>
+Public Class BearingBarPartGenerator
+
+    Private ReadOnly _app As Application
+    Private ReadOnly _pathService As New OutputPathService()
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Generates .ipt files for all bars in the layout result.
+    ''' </summary>
+    Public Function Generate(layout As BearingBarLayoutResult,
+                             params As GratingParameters) As BearingBarGenerationResult
+        Try
+            ' Resolve output folder
+            Dim outputFolder As String = _pathService.ResolveOutputFolder(
+                params.OutputFolder, _app)
+
+            If String.IsNullOrEmpty(outputFolder) Then
+                Return BearingBarGenerationResult.Failed(
+                    "Cannot resolve output folder. " &
+                    "Specify a folder or save the active document first.")
+            End If
+
+            ' Ensure output folder exists
+            If Not Directory.Exists(outputFolder) Then
+                Try
+                    Directory.CreateDirectory(outputFolder)
+                Catch ex As Exception
+                    Return BearingBarGenerationResult.Failed(
+                        "Cannot create output folder: " & ex.Message)
+                End Try
+            End If
+
+            Trace.TraceInformation(": HMG PartGen: Generating " &
+                layout.Bars.Count & " bearing bar parts to " & outputFolder)
+
+            Dim files As New List(Of GeneratedBearingBarFile)
+            Dim warnings As New List(Of String)
+
+            For Each bar As TrimmedBearingBar In layout.Bars
+                Dim genFile As GeneratedBearingBarFile = GenerateSingleBar(
+                    bar, params, outputFolder)
+                files.Add(genFile)
+
+                If genFile.Saved Then
+                    Trace.TraceInformation(": HMG PartGen:   OK — " &
+                        genFile.ToString())
+                Else
+                    Trace.TraceWarning(": HMG PartGen:   FAIL — " &
+                        genFile.ToString())
+                    warnings.Add("Bar " & bar.Mark & ": " & genFile.ErrorMessage)
+                End If
+            Next
+
+            Dim savedCount As Integer = 0
+            For Each f In files
+                If f.Saved Then savedCount += 1
+            Next
+
+            If savedCount = 0 Then
+                Return BearingBarGenerationResult.Failed(
+                    "All " & files.Count & " bar(s) failed to generate. " &
+                    "Check trace output for details.")
+            End If
+
+            Trace.TraceInformation(": HMG PartGen: Complete — " &
+                savedCount & "/" & files.Count & " files saved.")
+
+            Return BearingBarGenerationResult.Succeeded(files, outputFolder, warnings)
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG PartGen: Unexpected error — " & ex.ToString())
+            Return BearingBarGenerationResult.Failed(
+                "Part generation error: " & ex.Message)
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Creates a single bearing bar .ipt file with rectangular geometry.
+    ''' </summary>
+    Private Function GenerateSingleBar(bar As TrimmedBearingBar,
+                                       params As GratingParameters,
+                                       outputFolder As String) As GeneratedBearingBarFile
+        Dim result As New GeneratedBearingBarFile()
+        result.SourceBar = bar
+
+        Dim partDoc As PartDocument = Nothing
+
+        Try
+            ' Resolve file path
+            Dim fullPath As String = _pathService.GenerateFilePath(
+                outputFolder, params.NamingPrefix, bar)
+            result.FilePath = fullPath
+            result.FileName = Path.GetFileName(fullPath)
+
+            ' Convert inches to cm (Inventor internal units)
+            Dim lengthCm As Double = bar.Length * 2.54
+            Dim widthCm As Double = params.BarWidth * 2.54
+            Dim depthCm As Double = params.BarDepth * 2.54
+
+            ' Create new part document (invisible)
+            partDoc = CType(
+                _app.Documents.Add(DocumentTypeEnum.kPartDocumentObject,
+                                   _app.FileManager.GetTemplateFile(
+                                       DocumentTypeEnum.kPartDocumentObject),
+                                   False),
+                PartDocument)
+
+            Dim compDef As PartComponentDefinition = partDoc.ComponentDefinition
+
+            ' Create sketch on XY plane
+            Dim sketch As PlanarSketch = compDef.Sketches.Add(
+                compDef.WorkPlanes.Item(3)) ' Item(3) = XY plane
+
+            Dim tg As TransientGeometry = _app.TransientGeometry
+
+            ' Draw rectangle: length along X, width along Y, origin at (0,0)
+            Dim lines As SketchEntitiesEnumerator = sketch.SketchLines.AddAsTwoPointRectangle(
+                tg.CreatePoint2d(0, 0),
+                tg.CreatePoint2d(lengthCm, widthCm))
+
+            ' Create profile and extrude (depth along Z)
+            Dim profile As Profile = sketch.Profiles.AddForSolid()
+
+            Dim extrudeDef As ExtrudeDefinition = compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                profile, PartFeatureOperationEnum.kNewBodyOperation)
+
+            extrudeDef.SetDistanceExtent(
+                lengthCm:=depthCm,
+                extentDirection:=PartFeatureExtentDirectionEnum.kPositiveExtentDirection)
+
+            compDef.Features.ExtrudeFeatures.Add(extrudeDef)
+
+            ' Set iProperties for downstream identification
+            SetCustomProperty(partDoc, "HMG_Mark", bar.Mark)
+            SetCustomProperty(partDoc, "HMG_BarIndex", bar.BarIndex.ToString())
+            SetCustomProperty(partDoc, "HMG_Length_in", bar.Length.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_Depth_in", params.BarDepth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_Width_in", params.BarWidth.ToString("F4"))
+
+            ' Save
+            partDoc.SaveAs(fullPath, False)
+
+            result.Saved = True
+
+        Catch ex As Exception
+            result.Saved = False
+            result.ErrorMessage = ex.Message
+        Finally
+            ' Close the document (don't save again)
+            If partDoc IsNot Nothing Then
+                Try
+                    partDoc.Close(True) ' skip save — already saved
+                Catch
+                End Try
+            End If
+        End Try
+
+        Return result
+    End Function
+
+    ''' <summary>
+    ''' Sets a custom iProperty on the part document.
+    ''' </summary>
+    Private Sub SetCustomProperty(doc As PartDocument,
+                                   propName As String,
+                                   propValue As String)
+        Try
+            Dim customSet As PropertySet = doc.PropertySets.Item(
+                "Inventor User Defined Properties")
+
+            ' Try updating existing
+            Try
+                Dim existing As [Property] = customSet.Item(propName)
+                existing.Value = propValue
+                Return
+            Catch
+            End Try
+
+            ' Add new
+            customSet.Add(propValue, propName)
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG PartGen: Could not set property '" &
+                propName & "': " & ex.Message)
+        End Try
+    End Sub
+
+End Class

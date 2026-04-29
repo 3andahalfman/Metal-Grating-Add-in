@@ -1,0 +1,296 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Metal Bar Grating Addin - VB.NET
+'
+' BoundarySourceService: Locates and resolves named grating boundary
+' sketches in the active Inventor Part document.
+'
+' Phase 12: Named sketch resolution.
+'   Search order (first match wins):
+'     1. perimeter_sketch         — canonical project-agnostic name
+'     2. {ProjectName}_BOUNDARY  — project-specific alias (optional,
+'        only checked when a project name is supplied before the dialog)
+'
+' After a sketch is located, ResolveFromNamedSketch runs the same
+' profile validation and perimeter extraction pipeline that the
+' selected-sketch workflow uses (PerimeterExtractor).  No downstream
+' phases are touched.
+'
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports Inventor
+
+''' <summary>
+''' Locates named grating boundary sketches and resolves them into
+''' a validated SelectionResult ready for the existing pipeline.
+''' </summary>
+Public Class BoundarySourceService
+
+    ' ------------------------------------------------------------------
+    '  Public constants — callers and the dialog can reference these
+    ' ------------------------------------------------------------------
+
+    ''' <summary>
+    ''' Canonical sketch name checked first in every document.
+    ''' </summary>
+    Public Const PrimaryName As String = "perimeter_sketch"
+
+    ''' <summary>
+    ''' Suffix appended to a project name to form the alias sketch name.
+    ''' Example: project "Panel-7A" → alias "Panel-7A_BOUNDARY".
+    ''' Only checked when a non-empty project name is supplied.
+    ''' </summary>
+    Public Const AliasSuffix As String = "_BOUNDARY"
+
+    Private ReadOnly _app As Application
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ' ==================================================================
+    '  Named sketch lookup
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Scans the active Part document for a named boundary sketch.
+    ''' Checks <see cref="PrimaryName"/> first; then the project-specific
+    ''' alias ({projectName}_BOUNDARY) if <paramref name="projectName"/>
+    ''' is supplied and differs from the primary name.
+    '''
+    ''' Returns the first match, or a Not-Found result if none exist.
+    ''' Safe to call before any dialog is shown — never throws.
+    ''' </summary>
+    ''' <param name="projectName">
+    ''' Optional. When provided the alias {projectName}_BOUNDARY is also
+    ''' checked. Ignored if blank or equal to the primary name.
+    ''' </param>
+    Public Function FindNamedBoundarySketch(
+            Optional projectName As String = "") As NamedSketchLookupResult
+
+        Try
+            ' Require an active Part document
+            Dim doc As Document = _app.ActiveDocument
+            If doc Is Nothing OrElse
+               doc.DocumentType <> DocumentTypeEnum.kPartDocumentObject Then
+                Return NamedSketchLookupResult.NotFound(
+                    "No active Part document — named sketch search skipped.")
+            End If
+
+            Dim compDef As PartComponentDefinition =
+                CType(doc, PartDocument).ComponentDefinition
+
+            ' Build the candidate list (primary first, alias second)
+            Dim candidates As New List(Of String)
+            candidates.Add(PrimaryName)
+
+            If Not String.IsNullOrWhiteSpace(projectName) Then
+                Dim [alias] As String = projectName.Trim() & AliasSuffix
+                If Not [alias].Equals(PrimaryName, StringComparison.OrdinalIgnoreCase) Then
+                    candidates.Add([alias])
+                End If
+            End If
+
+            Trace.TraceInformation(
+                ": HMG BoundarySourceService: Searching for named boundary sketch. " &
+                "Candidates: [" & String.Join(", ", candidates) & "]")
+
+            For Each candidateName As String In candidates
+                Dim sketch As PlanarSketch = FindSketchByName(compDef, candidateName)
+                If sketch IsNot Nothing Then
+                    Trace.TraceInformation(
+                        ": HMG BoundarySourceService: Found — '" & candidateName & "'.")
+                    Return NamedSketchLookupResult.Succeeded(candidateName, sketch)
+                End If
+            Next
+
+            Dim msg As String =
+                "Named boundary sketch not found. " &
+                "Checked: [" & String.Join(", ", candidates) & "]"
+            Trace.TraceInformation(": HMG BoundarySourceService: " & msg)
+            Return NamedSketchLookupResult.NotFound(msg)
+
+        Catch ex As Exception
+            Dim errMsg As String = "Error searching for named sketch: " & ex.Message
+            Trace.TraceError(": HMG BoundarySourceService: " & errMsg)
+            Return NamedSketchLookupResult.NotFound(errMsg)
+        End Try
+    End Function
+
+    ' ==================================================================
+    '  Named sketch resolution (perimeter extraction)
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Resolves a named boundary sketch into a validated
+    ''' <see cref="SelectionResult"/> by running the same profile
+    ''' validation and perimeter extraction pipeline used by the
+    ''' selected-sketch workflow.
+    '''
+    ''' Steps:
+    '''   1. Verify active Part document.
+    '''   2. Locate the sketch by exact name (case-insensitive).
+    '''   3. Validate: sketch must contain at least one closed region.
+    '''   4. Identify the outer boundary ProfilePath.
+    '''   5. Delegate to PerimeterExtractor for vertex extraction.
+    ''' </summary>
+    ''' <param name="sketchName">Exact sketch name to resolve.</param>
+    Public Function ResolveFromNamedSketch(
+            sketchName As String) As SelectionResult
+
+        Trace.TraceInformation(
+            ": HMG BoundarySourceService: Resolving named sketch '" &
+            sketchName & "'...")
+
+        Try
+            ' --- 1. Active Part document ---
+            Dim doc As Document = _app.ActiveDocument
+            If doc Is Nothing OrElse
+               doc.DocumentType <> DocumentTypeEnum.kPartDocumentObject Then
+                Return SelectionResult.Failed(
+                    "No active Part document. " &
+                    "Cannot resolve named sketch '" & sketchName & "'.")
+            End If
+
+            Dim compDef As PartComponentDefinition =
+                CType(doc, PartDocument).ComponentDefinition
+
+            ' --- 2. Locate sketch by name ---
+            Dim sketch As PlanarSketch = FindSketchByName(compDef, sketchName)
+            If sketch Is Nothing Then
+                Return SelectionResult.Failed(
+                    "The named sketch '" & sketchName & "' was not found " &
+                    "in the active document." & vbCrLf & vbCrLf &
+                    "Ensure the sketch exists and its name matches exactly.")
+            End If
+
+            Trace.TraceInformation(
+                ": HMG BoundarySourceService: Sketch '" & sketchName &
+                "' located. Validating profile...")
+
+            ' --- 3. Profile validation ---
+            Dim profile As Profile = Nothing
+            Try
+                profile = sketch.Profiles.AddForSolid()
+            Catch
+                Return SelectionResult.Failed(
+                    "The sketch '" & sketchName &
+                    "' does not contain any closed regions." & vbCrLf & vbCrLf &
+                    "Ensure all curves connect end-to-end to form " &
+                    "at least one closed loop.")
+            End Try
+
+            If profile Is Nothing Then
+                Return SelectionResult.Failed(
+                    "Could not compute profiles from sketch '" &
+                    sketchName & "'.")
+            End If
+
+            ' --- 4. Find outer boundary path ---
+            Dim outerPath As ProfilePath = FindOuterPath(profile)
+            If outerPath Is Nothing Then
+                Return SelectionResult.Failed(
+                    "No outer boundary found in sketch '" & sketchName &
+                    "'." & vbCrLf & vbCrLf &
+                    "The sketch must contain a closed loop that defines " &
+                    "the grating outline.")
+            End If
+
+            Dim pathCount As Integer = SafeCount(profile)
+            Trace.TraceInformation(
+                ": HMG BoundarySourceService: Profile OK — " &
+                pathCount & " path(s). Extracting geometry...")
+
+            ' --- 5. Extract perimeter geometry ---
+            Dim extractor As New PerimeterExtractor()
+            Dim data As PerimeterData = extractor.ExtractFromPath(sketch, outerPath)
+
+            If data Is Nothing Then
+                Return SelectionResult.Failed(
+                    "Failed to extract perimeter geometry from sketch '" &
+                    sketchName & "'.")
+            End If
+
+            Trace.TraceInformation(
+                ": HMG BoundarySourceService: Resolved '" & sketchName &
+                "' — " & data.EdgeCount & " edges, " &
+                data.OuterLoopVertices.Count & " vertices.")
+
+            Return SelectionResult.Succeeded(data)
+
+        Catch ex As Exception
+            Trace.TraceError(
+                ": HMG BoundarySourceService: Unexpected error resolving '" &
+                sketchName & "' — " & ex.ToString())
+            Return SelectionResult.Failed(
+                "Named sketch resolution error: " & ex.Message)
+        End Try
+    End Function
+
+    ' ==================================================================
+    '  Private helpers
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Iterates the Part's sketch collection and returns the first
+    ''' sketch whose name matches <paramref name="name"/> using a
+    ''' case-insensitive ordinal comparison.
+    ''' Returns Nothing if no match is found.
+    ''' </summary>
+    Private Shared Function FindSketchByName(
+            compDef As PartComponentDefinition,
+            name As String) As PlanarSketch
+        Try
+            For Each sketch As PlanarSketch In compDef.Sketches
+                Try
+                    If String.Equals(sketch.Name, name,
+                                     StringComparison.OrdinalIgnoreCase) Then
+                        Return sketch
+                    End If
+                Catch
+                    ' Skip any sketch that cannot be accessed
+                End Try
+            Next
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG BoundarySourceService: Error iterating sketches — " &
+                ex.Message)
+        End Try
+        Return Nothing
+    End Function
+
+    ''' <summary>
+    ''' Finds the first ProfilePath that adds material (outer boundary).
+    ''' Falls back to the first path when AddsMaterial is not accessible.
+    ''' Mirrors the equivalent helper in PerimeterSelectionService.
+    ''' </summary>
+    Private Shared Function FindOuterPath(profile As Profile) As ProfilePath
+        Try
+            For i As Integer = 1 To profile.Count
+                Dim path As ProfilePath = profile.Item(i)
+                Try
+                    If path.AddsMaterial Then Return path
+                Catch
+                End Try
+            Next
+        Catch
+        End Try
+
+        ' Fallback: first path is typically the outer boundary
+        Try
+            If profile.Count > 0 Then Return profile.Item(1)
+        Catch
+        End Try
+
+        Return Nothing
+    End Function
+
+    Private Shared Function SafeCount(profile As Profile) As Integer
+        Try
+            Return profile.Count
+        Catch
+            Return 0
+        End Try
+    End Function
+
+End Class

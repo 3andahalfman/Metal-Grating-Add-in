@@ -1,0 +1,100 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' OutputPathService: Resolves output folder and generates unique
+' file names for bearing bar .ipt files.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Resolves the output folder and builds unique .ipt file paths
+''' for each bearing bar.
+''' </summary>
+Public Class OutputPathService
+
+    ''' <summary>
+    ''' Resolves the output folder. Uses the user-specified folder if
+    ''' provided, otherwise falls back to the active document's folder.
+    ''' Returns Nothing if no folder can be determined.
+    ''' </summary>
+    Public Function ResolveOutputFolder(specifiedFolder As String,
+                                        app As Application) As String
+        ' User specified a folder
+        If Not String.IsNullOrWhiteSpace(specifiedFolder) Then
+            If Directory.Exists(specifiedFolder) Then
+                Trace.TraceInformation(": HMG Path: Using specified folder: " &
+                                       specifiedFolder)
+                Return specifiedFolder
+            Else
+                Trace.TraceWarning(": HMG Path: Specified folder does not exist: " &
+                                    specifiedFolder)
+                Return Nothing
+            End If
+        End If
+
+        ' Fall back to active document folder
+        Try
+            Dim doc As Document = app.ActiveDocument
+            If doc IsNot Nothing AndAlso Not String.IsNullOrEmpty(doc.FullFileName) Then
+                Dim docFolder As String = Path.GetDirectoryName(doc.FullFileName)
+                If Directory.Exists(docFolder) Then
+                    Trace.TraceInformation(": HMG Path: Using active document folder: " &
+                                           docFolder)
+                    Return docFolder
+                End If
+            End If
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG Path: Could not resolve document folder: " &
+                                ex.Message)
+        End Try
+
+        Return Nothing
+    End Function
+
+    ''' <summary>
+    ''' Generates a unique .ipt file name for a bearing bar.
+    ''' Pattern: {Prefix}_BB{Index:000}.ipt
+    ''' If the file already exists, appends a numeric suffix.
+    ''' </summary>
+    Public Function GenerateFilePath(outputFolder As String,
+                                     prefix As String,
+                                     bar As TrimmedBearingBar) As String
+        Dim safePfx As String = SanitizeFileName(If(prefix, "Grating"))
+        Dim baseName As String = safePfx & "_BB" & bar.BarIndex.ToString("000")
+        Dim fileName As String = baseName & ".ipt"
+        Dim fullPath As String = Path.Combine(outputFolder, fileName)
+
+        ' Avoid overwriting existing files
+        If File.Exists(fullPath) Then
+            Dim counter As Integer = 1
+            Do
+                fileName = baseName & "_" & counter & ".ipt"
+                fullPath = Path.Combine(outputFolder, fileName)
+                counter += 1
+            Loop While File.Exists(fullPath) AndAlso counter < 1000
+        End If
+
+        Return fullPath
+    End Function
+
+    ''' <summary>
+    ''' Removes characters that are invalid in file names.
+    ''' </summary>
+    Private Function SanitizeFileName(name As String) As String
+        Dim invalid() As Char = Path.GetInvalidFileNameChars()
+        Dim result As New System.Text.StringBuilder()
+        For Each c As Char In name
+            If Array.IndexOf(invalid, c) < 0 Then
+                result.Append(c)
+            Else
+                result.Append("_"c)
+            End If
+        Next
+        If result.Length = 0 Then Return "Part"
+        Return result.ToString()
+    End Function
+
+End Class

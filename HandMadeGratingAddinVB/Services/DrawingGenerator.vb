@@ -1,0 +1,857 @@
+'////////////////////////////////////////////////////////////////////
+' Metal Bar Grating Addin - VB.NET
+'
+' DrawingGenerator: Creates an Inventor drawing document (.idw)
+' containing a front view of the grating assembly with bottom and
+' right projected views, plus fabrication schedule tables for
+' cross bars and band bars.
+'
+' Phase 20 — Fabrication drawing generation.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Generates an Inventor drawing (.idw) with a front base view,
+''' bottom and right projected views of the grating assembly, and
+''' schedule tables derived from Phase 19 data.
+''' </summary>
+Public Class DrawingGenerator
+
+    Private ReadOnly _app As Application
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Creates the fabrication drawing for the completed grating project.
+    ''' </summary>
+    Public Function Generate(project As GratingProject) As DrawingGenerationResult
+        Try
+            ' --- Validate inputs ---
+            If project Is Nothing Then
+                Return DrawingGenerationResult.Failed("No project provided.")
+            End If
+
+            If project.AssemblyResult Is Nothing OrElse
+               Not project.AssemblyResult.Success Then
+                Return DrawingGenerationResult.Failed(
+                    "No valid assembly result. Run assembly generation first.")
+            End If
+
+            Dim assemblyPath As String = project.AssemblyResult.AssemblyFilePath
+            If String.IsNullOrEmpty(assemblyPath) OrElse Not IO.File.Exists(assemblyPath) Then
+                Return DrawingGenerationResult.Failed(
+                    "Assembly file not found: " & If(assemblyPath, "(null)"))
+            End If
+
+            Dim warnings As New List(Of String)
+
+            ' --- Build output path ---
+            Dim outputFolder As String = IO.Path.GetDirectoryName(assemblyPath)
+            Dim prefix As String = SanitizeFileName(
+                If(project.Parameters?.ResolvedPrefix, "Grating"))
+            Dim drawingPath As String = BuildDrawingFilePath(outputFolder, prefix)
+
+            Trace.TraceInformation(": HMG Phase 20: Creating drawing at " & drawingPath)
+
+            ' --- Create drawing document from GP INC STANDARD template ---
+            Dim addinFolder As String = IO.Path.GetDirectoryName(
+                System.Reflection.Assembly.GetExecutingAssembly().Location)
+            Dim templateFile As String = IO.Path.Combine(
+                addinFolder, "Resources", "GP INC STANDARD.idw")
+
+            If Not IO.File.Exists(templateFile) Then
+                Return DrawingGenerationResult.Failed(
+                    "Drawing template not found: " & templateFile)
+            End If
+
+            Dim dwgDoc As DrawingDocument = CType(
+                _app.Documents.Add(
+                    DocumentTypeEnum.kDrawingDocumentObject,
+                    templateFile,
+                    True),
+                DrawingDocument)
+
+            ' Set the display name to match the assembly
+            dwgDoc.DisplayName = prefix & "_DWG"
+
+            Dim sheet As Sheet = dwgDoc.ActiveSheet
+            Trace.TraceInformation(": HMG Phase 20: Sheet created — " &
+                sheet.Size.ToString() & " (" &
+                sheet.Width.ToString("F2") & " x " &
+                sheet.Height.ToString("F2") & " cm)")
+
+            ' --- Place assembly base view ---
+            Dim viewPlaced As Boolean = False
+            Try
+                viewPlaced = PlaceBaseView(dwgDoc, sheet, assemblyPath, project)
+                If viewPlaced Then
+                    Trace.TraceInformation(": HMG Phase 20: Base view placed successfully.")
+                Else
+                    warnings.Add("Base view could not be placed — drawing has no views.")
+                    Trace.TraceWarning(": HMG Phase 20: Base view placement returned false.")
+                End If
+            Catch ex As Exception
+                warnings.Add("Base view placement failed: " & ex.Message)
+                Trace.TraceError(": HMG Phase 20: Base view error — " & ex.Message)
+            End Try
+
+            ' --- Suppress auto-retrieved model dimensions ---
+            Try
+                SuppressRetrievedDimensions(sheet)
+            Catch ex As Exception
+                warnings.Add("Dimension suppression failed: " & ex.Message)
+                Trace.TraceWarning(": HMG Phase 20: Dimension suppression error — " & ex.Message)
+            End Try
+
+            ' --- Add overall baseline dimensions ---
+            Try
+                AddOverallDimensions(sheet, project)
+                Trace.TraceInformation(": HMG Phase 20: Overall dimensions added.")
+            Catch ex As Exception
+                warnings.Add("Overall dimensions failed: " & ex.Message)
+                Trace.TraceWarning(": HMG Phase 20: Overall dimensions error — " & ex.Message)
+            End Try
+
+            ' --- Add title annotation ---
+            Try
+                AddTitleAnnotation(sheet, project)
+                Trace.TraceInformation(": HMG Phase 20: Title annotation added.")
+            Catch ex As Exception
+                warnings.Add("Title annotation failed: " & ex.Message)
+                Trace.TraceWarning(": HMG Phase 20: Title annotation error — " & ex.Message)
+            End Try
+
+            ' --- Add grating specifications table ---
+            Try
+                PlaceSpecificationsTable(sheet, project)
+                Trace.TraceInformation(": HMG Phase 20: Specifications table placed.")
+            Catch ex As Exception
+                warnings.Add("Specifications table failed: " & ex.Message)
+                Trace.TraceWarning(": HMG Phase 20: Specifications table error — " & ex.Message)
+            End Try
+
+            ' --- Create schedule tables ---
+            '     Band bar placed first (top-right corner), then cross bar
+            '     snaps directly below the band bar table.
+            Dim tablesPlaced As Integer = 0
+            Dim bandBarBottom As Double? = Nothing  ' Y of band bar table bottom edge
+            Dim bandBarLeftX As Double? = Nothing   ' X of band bar table left edge
+
+            If project.ScheduleResult IsNot Nothing AndAlso
+               project.ScheduleResult.Success Then
+
+                ' Band bar schedule table (top-right corner)
+                If project.ScheduleResult.BandBarSchedule IsNot Nothing AndAlso
+                   project.ScheduleResult.BandBarSchedule.Count > 0 Then
+                    Try
+                        Dim bandTablePos As Double() = GetBandBarTablePosition(sheet)
+                        Dim bandRange As Box2d = PlaceScheduleTable(sheet,
+                            "BAND BAR SCHEDULE",
+                            project.ScheduleResult.BandBarSchedule,
+                            bandTablePos,
+                            Nothing)
+                        tablesPlaced += 1
+                        If bandRange IsNot Nothing Then
+                            bandBarBottom = bandRange.MinPoint.Y
+                            bandBarLeftX = bandRange.MinPoint.X
+                        End If
+                        Trace.TraceInformation(": HMG Phase 20: Band bar table placed (" &
+                            project.ScheduleResult.BandBarSchedule.Count & " rows).")
+                    Catch ex As Exception
+                        warnings.Add("Band bar table failed: " & ex.Message)
+                        Trace.TraceError(": HMG Phase 20: Band bar table error — " &
+                            ex.Message)
+                    End Try
+                End If
+
+                ' Cross bar schedule table (snapped below band bar table)
+                If project.ScheduleResult.CrossBarSchedule IsNot Nothing AndAlso
+                   project.ScheduleResult.CrossBarSchedule.Count > 0 Then
+                    Try
+                        Dim crossPos As Double() = GetCrossBarTablePosition(
+                            sheet, bandBarBottom, bandBarLeftX)
+                        PlaceScheduleTable(sheet,
+                            "CROSS BAR SCHEDULE",
+                            project.ScheduleResult.CrossBarSchedule,
+                            crossPos,
+                            project.ScheduleResult.CrossBarTypeDescription)
+                        tablesPlaced += 1
+                        Trace.TraceInformation(": HMG Phase 20: Cross bar table placed (" &
+                            project.ScheduleResult.CrossBarSchedule.Count & " rows).")
+                    Catch ex As Exception
+                        warnings.Add("Cross bar table failed: " & ex.Message)
+                        Trace.TraceError(": HMG Phase 20: Cross bar table error — " &
+                            ex.Message)
+                    End Try
+                End If
+            Else
+                warnings.Add("No schedule data available — tables not placed.")
+                Trace.TraceWarning(": HMG Phase 20: Schedule data missing — no tables.")
+            End If
+
+            ' --- Drawing is left open for manual save ---
+            Trace.TraceInformation(": HMG Phase 20: Drawing generated (unsaved). " &
+                "Suggested path: " & drawingPath)
+
+            Return DrawingGenerationResult.Succeeded(
+                drawingPath, viewPlaced, tablesPlaced, warnings)
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG Phase 20: Unexpected error — " & ex.Message)
+            Return DrawingGenerationResult.Failed(
+                "Unexpected error: " & ex.Message)
+        End Try
+    End Function
+
+    ' ==================================================================
+    '  Base view placement
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Places a front base view of the assembly onto the sheet,
+    ''' then adds bottom and right projected views.
+    ''' Returns True if the base view was added.
+    ''' </summary>
+    Private Function PlaceBaseView(dwgDoc As DrawingDocument,
+                                   sheet As Sheet,
+                                   assemblyPath As String,
+                                   project As GratingProject) As Boolean
+
+        ' Position the front view in the upper-left quadrant,
+        ' leaving room below for the bottom view, to the right
+        ' for the right view, and far-right for schedule tables.
+        Dim viewCenterX As Double = sheet.Width * 0.28
+        Dim viewCenterY As Double = sheet.Height * 0.62
+
+        Dim tg As TransientGeometry = _app.TransientGeometry
+        Dim viewCenter As Point2d = tg.CreatePoint2d(viewCenterX, viewCenterY)
+
+        ' Choose a scale that fits reasonably.
+        Dim viewScale As Double = 1.0
+
+        ' Estimate a scale from the perimeter extents if available
+        If project.Perimeter IsNot Nothing Then
+            viewScale = EstimateViewScale(sheet, project.Perimeter)
+        End If
+
+        ' Open the assembly document (invisible) for view placement
+        Dim asmDoc As Document = _app.Documents.Open(assemblyPath, False)
+
+        ' Front view as the base view
+        Dim baseView As DrawingView = sheet.DrawingViews.AddBaseView(
+            asmDoc,
+            viewCenter,
+            viewScale,
+            ViewOrientationTypeEnum.kFrontViewOrientation,
+            DrawingViewStyleEnum.kHiddenLineRemovedDrawingViewStyle)
+
+        If baseView Is Nothing Then Return False
+
+        Trace.TraceInformation(": HMG Phase 20: Front view '" & baseView.Name &
+            "' placed at (" & viewCenterX.ToString("F2") & ", " &
+            viewCenterY.ToString("F2") & ") scale=" &
+            viewScale.ToString("F4"))
+
+        ' --- Bottom projected view (below the front view) ---
+        Try
+            Dim bottomPt As Point2d = tg.CreatePoint2d(
+                viewCenterX,
+                sheet.Height * 0.22)
+            Dim bottomView As DrawingView = sheet.DrawingViews.AddProjectedView(
+                baseView, bottomPt,
+                DrawingViewStyleEnum.kHiddenLineRemovedDrawingViewStyle)
+            If bottomView IsNot Nothing Then
+                Trace.TraceInformation(": HMG Phase 20: Bottom projected view added.")
+            End If
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG Phase 20: Bottom view failed " & ex.Message)
+        End Try
+
+        ' --- Right projected view (to the right of the front view) ---
+        Try
+            Dim rightPt As Point2d = tg.CreatePoint2d(
+                sheet.Width * 0.55,
+                viewCenterY)
+            Dim rightView As DrawingView = sheet.DrawingViews.AddProjectedView(
+                baseView, rightPt,
+                DrawingViewStyleEnum.kHiddenLineRemovedDrawingViewStyle)
+            If rightView IsNot Nothing Then
+                Trace.TraceInformation(": HMG Phase 20: Right projected view added.")
+            End If
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG Phase 20: Right view failed " & ex.Message)
+        End Try
+
+        Return True
+    End Function
+
+    ''' <summary>
+    ''' Removes all auto-retrieved model dimensions and annotations
+    ''' from every view on the sheet.  This leaves a clean drawing
+    ''' so that only the text-note dimensions placed by
+    ''' AddOverallDimensions remain.
+    ''' </summary>
+    Private Sub SuppressRetrievedDimensions(sheet As Sheet)
+        Try
+            Dim dimsToDelete As New List(Of Object)
+            For Each genDim As Object In sheet.DrawingDimensions.GeneralDimensions
+                dimsToDelete.Add(genDim)
+            Next
+            For Each d As Object In dimsToDelete
+                Try
+                    CType(d, DrawingDimension).Delete()
+                Catch
+                End Try
+            Next
+
+            Trace.TraceInformation(
+                ": HMG Phase 20: Suppressed " & dimsToDelete.Count &
+                " auto-retrieved dimension(s).")
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG Phase 20: SuppressRetrievedDimensions — " & ex.Message)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Estimates a drawing view scale that will fit the grating perimeter
+    ''' within roughly 60% of the sheet width and 80% of the sheet height.
+    ''' All perimeter dimensions are in inches; sheet dimensions in cm.
+    ''' </summary>
+    Private Function EstimateViewScale(sheet As Sheet,
+                                       perimeter As PerimeterData) As Double
+        Const InchesToCm As Double = 2.54
+
+        ' Get perimeter bounding box extents (inches)
+        Dim minX As Double = Double.MaxValue
+        Dim maxX As Double = Double.MinValue
+        Dim minY As Double = Double.MaxValue
+        Dim maxY As Double = Double.MinValue
+
+        If perimeter.OuterLoopVertices IsNot Nothing Then
+            For Each v As Double() In perimeter.OuterLoopVertices
+                If v(0) < minX Then minX = v(0)
+                If v(0) > maxX Then maxX = v(0)
+                If v(1) < minY Then minY = v(1)
+                If v(1) > maxY Then maxY = v(1)
+            Next
+        End If
+
+        Dim extentX As Double = (maxX - minX) * InchesToCm   ' perimeter width in cm
+        Dim extentY As Double = (maxY - minY) * InchesToCm   ' perimeter height in cm
+
+        If extentX <= 0 OrElse extentY <= 0 Then Return 1.0
+
+        ' Available area on sheet (leave space for projected views and tables)
+        Dim availW As Double = sheet.Width * 0.4      ' 40% for front view width
+        Dim availH As Double = sheet.Height * 0.55    ' 55% for front view height
+
+        Dim scaleX As Double = availW / extentX
+        Dim scaleY As Double = availH / extentY
+        Dim fitScale As Double = Math.Min(scaleX, scaleY)
+
+        ' Clamp to a reasonable range
+        If fitScale > 2.0 Then fitScale = 2.0
+        If fitScale < 0.01 Then fitScale = 0.01
+
+        ' Round to a "clean" scale if close to a standard value
+        fitScale = RoundToNearestStandardScale(fitScale)
+
+        Trace.TraceInformation(": HMG Phase 20: Estimated scale = " &
+            fitScale.ToString("F4") &
+            " (extents: " & extentX.ToString("F1") & " x " &
+            extentY.ToString("F1") & " cm)")
+
+        Return fitScale
+    End Function
+
+    ''' <summary>
+    ''' Snaps to the nearest standard drawing scale value.
+    ''' </summary>
+    Private Function RoundToNearestStandardScale(rawScale As Double) As Double
+        Dim standards() As Double = {
+            0.01, 0.02, 0.05, 0.1, 0.125, 0.2, 0.25, 0.5,
+            1.0, 2.0
+        }
+
+        Dim best As Double = rawScale
+        Dim bestDiff As Double = Double.MaxValue
+        For Each s As Double In standards
+            Dim diff As Double = Math.Abs(rawScale - s)
+            If diff < bestDiff Then
+                bestDiff = diff
+                best = s
+            End If
+        Next
+        Return best
+    End Function
+
+    ' ==================================================================
+    '  Overall dimension annotations
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Adds overall width and height dimension annotations around
+    ''' the front base view as text notes. Uses perimeter extents
+    ''' to compute the actual imperial dimensions.
+    ''' </summary>
+    Private Sub AddOverallDimensions(sheet As Sheet, project As GratingProject)
+        If sheet.DrawingViews.Count = 0 Then Return
+        If project.Perimeter Is Nothing OrElse
+           project.Perimeter.OuterLoopVertices Is Nothing OrElse
+           project.Perimeter.OuterLoopVertices.Count = 0 Then Return
+
+        ' --- Compute overall extents from perimeter (inches) ---
+        Dim minX As Double = Double.MaxValue
+        Dim maxX As Double = Double.MinValue
+        Dim minY As Double = Double.MaxValue
+        Dim maxY As Double = Double.MinValue
+
+        For Each v As Double() In project.Perimeter.OuterLoopVertices
+            If v(0) < minX Then minX = v(0)
+            If v(0) > maxX Then maxX = v(0)
+            If v(1) < minY Then minY = v(1)
+            If v(1) > maxY Then maxY = v(1)
+        Next
+
+        Dim overallWidth As Double = maxX - minX   ' inches
+        Dim overallHeight As Double = maxY - minY  ' inches
+
+        If overallWidth <= 0 OrElse overallHeight <= 0 Then Return
+
+        Dim widthText As String = FormatImperialDimension(overallWidth)
+        Dim heightText As String = FormatImperialDimension(overallHeight)
+
+        Dim tg As TransientGeometry = _app.TransientGeometry
+        Dim frontView As DrawingView = sheet.DrawingViews.Item(1)
+
+        Dim viewLeft As Double = frontView.Left
+        Dim viewTop As Double = frontView.Top
+        Dim viewWidth As Double = frontView.Width
+        Dim viewHeight As Double = frontView.Height
+
+        ' --- Horizontal dimension text centered below the front view ---
+        Dim hNoteX As Double = viewLeft + viewWidth / 2
+        Dim hNoteY As Double = viewTop - viewHeight - 0.6
+        Dim hNotePos As Point2d = tg.CreatePoint2d(hNoteX, hNoteY)
+        sheet.DrawingNotes.GeneralNotes.AddFitted(hNotePos, widthText)
+
+        ' --- Vertical dimension text to the left of the front view ---
+        Dim vNoteX As Double = viewLeft - 0.8
+        Dim vNoteY As Double = viewTop - viewHeight / 2
+        Dim vNotePos As Point2d = tg.CreatePoint2d(vNoteX, vNoteY)
+        sheet.DrawingNotes.GeneralNotes.AddFitted(vNotePos, heightText)
+
+        ' --- Bar depth text to the right of the right projected view ---
+        If project.Parameters IsNot Nothing AndAlso project.Parameters.BarDepth > 0 Then
+            Dim depthText As String = FormatImperialDimension(project.Parameters.BarDepth)
+            If sheet.DrawingViews.Count >= 3 Then
+                Dim rightView As DrawingView = sheet.DrawingViews.Item(3)
+                Dim dNoteX As Double = rightView.Left + rightView.Width / 2
+                Dim dNoteY As Double = rightView.Top + 0.6
+                Dim dNotePos As Point2d = tg.CreatePoint2d(dNoteX, dNoteY)
+                sheet.DrawingNotes.GeneralNotes.AddFitted(dNotePos, depthText)
+            End If
+        End If
+
+        Trace.TraceInformation(": HMG Phase 20: Dimension annotations added — " &
+            widthText & " x " & heightText)
+    End Sub
+
+    ''' <summary>
+    ''' Formats a dimension in inches as an imperial string.
+    ''' Values >= 12 use feet-inches (e.g. 2'-6-1/4").
+    ''' Values &lt; 12 use inches only (e.g. 8-3/8").
+    ''' </summary>
+    Private Shared Function FormatImperialDimension(inches As Double) As String
+        If inches <= 0 Then Return "0" & ChrW(8243)
+
+        Dim feet As Integer = CInt(Math.Floor(inches / 12.0))
+        Dim remaining As Double = inches - (feet * 12.0)
+
+        Dim inchPart As String = FormatFractionalInches(remaining)
+
+        If feet > 0 Then
+            If remaining < 0.001 Then
+                Return feet & "'-0" & ChrW(8243)
+            End If
+            Return feet & "'-" & inchPart
+        Else
+            Return inchPart
+        End If
+    End Function
+
+    ''' <summary>
+    ''' Formats a value in inches (0..&lt;12) as whole inches plus a
+    ''' fractional part to the nearest 1/16.  Examples: 8-3/8", 2-1/4"
+    ''' </summary>
+    Private Shared Function FormatFractionalInches(value As Double) As String
+        If value < 0.001 Then Return "0" & ChrW(8243)
+
+        Dim wholeInches As Integer = CInt(Math.Floor(value))
+        Dim frac As Double = value - wholeInches
+
+        ' Round to nearest 1/16
+        Dim sixteenths As Integer = CInt(Math.Round(frac * 16))
+        If sixteenths >= 16 Then
+            wholeInches += 1
+            sixteenths = 0
+        End If
+
+        ' Reduce the fraction
+        Dim num As Integer = sixteenths
+        Dim den As Integer = 16
+        If num > 0 Then
+            While num Mod 2 = 0 AndAlso den > 1
+                num \= 2
+                den \= 2
+            End While
+        End If
+
+        If num = 0 Then
+            Return wholeInches & ChrW(8243)
+        ElseIf wholeInches = 0 Then
+            Return num & "/" & den & ChrW(8243)
+        Else
+            Return wholeInches & "-" & num & "/" & den & ChrW(8243)
+        End If
+    End Function
+    ' ==================================================================
+    '  Title annotation
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Adds a simple title annotation at the top of the sheet.
+    ''' </summary>
+    Private Sub AddTitleAnnotation(sheet As Sheet, project As GratingProject)
+        Dim tg As TransientGeometry = _app.TransientGeometry
+        Dim titleX As Double = sheet.Width * 0.35
+        Dim titleY As Double = sheet.Height * 0.93
+
+        Dim titlePos As Point2d = tg.CreatePoint2d(titleX, titleY)
+
+        Dim titleText As String = If(project.ProjectName, "Grating") &
+            " - Fabrication Drawing"
+
+        sheet.DrawingNotes.GeneralNotes.AddFitted(titlePos, titleText)
+    End Sub
+
+    ' ==================================================================
+    '  Schedule table placement
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Creates a custom table on the sheet from schedule row data.
+    ''' Columns: Mark | Length | Qty.
+    ''' Returns the final RangeBox of the placed table (or Nothing on error).
+    ''' </summary>
+    Private Function PlaceScheduleTable(sheet As Sheet,
+                                        tableTitle As String,
+                                        rows As List(Of ScheduleRow),
+                                        position As Double(),
+                                        Optional typeDescription As String = Nothing) As Box2d
+
+        Dim tg As TransientGeometry = _app.TransientGeometry
+        Dim tablePt As Point2d = tg.CreatePoint2d(position(0), position(1))
+
+        Dim numColumns As Integer = 3
+        Dim numRows As Integer = rows.Count
+
+        ' Create table with headers only — fill cells individually
+        ' to avoid COM 2D-array marshalling issues with Contents param
+        Dim headers As String() = {"Mark", "Length", "Qty"}
+        Dim table As CustomTable = sheet.CustomTables.Add(
+            tableTitle, tablePt, numColumns, numRows, headers)
+
+        ' Set column widths (cm) — wider for band bar marks
+        Dim isBandBar As Boolean = tableTitle.Contains("BAND")
+        table.Columns.Item(1).Width = If(isBandBar, 14.0, 5.0)
+        table.Columns.Item(2).Width = If(isBandBar, 4.0, 4.0)
+        table.Columns.Item(3).Width = If(isBandBar, 2.0, 2.0)
+
+        ' Fill cell data (Rows collection is 1-based, data rows only)
+        For i As Integer = 0 To rows.Count - 1
+            Dim row As ScheduleRow = rows(i)
+            table.Rows.Item(i + 1).Item(1).Value = If(row.MarkRange, row.Mark)
+            table.Rows.Item(i + 1).Item(2).Value = row.LengthDisplay
+            table.Rows.Item(i + 1).Item(3).Value = row.Quantity.ToString()
+        Next
+
+        ' Right-align band bar table: snap right edge to the right border
+        If isBandBar Then
+            Try
+                Const RightBorderX As Double = 15.24  ' (5.5+0.5) in from right edge
+                Dim rightBorderPos As Double = sheet.Width - RightBorderX
+                Dim rb As Box2d = table.RangeBox
+                Dim tableWidth As Double = rb.MaxPoint.X - rb.MinPoint.X
+                Dim targetX As Double = rightBorderPos - tableWidth
+                Dim currentPos As Point2d = table.Position
+                table.Position = tg.CreatePoint2d(targetX, currentPos.Y)
+                Trace.TraceInformation(
+                    ": HMG Phase 20: Band bar table right-aligned — width=" &
+                    tableWidth.ToString("F2") & " cm.")
+            Catch ex As Exception
+                Trace.TraceWarning(
+                    ": HMG Phase 20: Band bar table reposition failed — " & ex.Message)
+            End Try
+        End If
+
+        ' If a type description is provided, add it as a note below the table
+        If Not String.IsNullOrEmpty(typeDescription) Then
+            Try
+                Dim rb2 As Box2d = table.RangeBox
+                Dim noteY As Double = rb2.MinPoint.Y - 0.4
+                Dim notePos As Point2d = tg.CreatePoint2d(rb2.MinPoint.X, noteY)
+                sheet.DrawingNotes.GeneralNotes.AddFitted(
+                    notePos, "Type: " & typeDescription)
+            Catch ex As Exception
+                Trace.TraceWarning(": HMG Phase 20: Type description note failed — " &
+                    ex.Message)
+            End Try
+        End If
+
+        ' Return final range for downstream positioning
+        Try
+            Return table.RangeBox
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Returns the position {X, Y} in cm for the cross bar schedule table.
+    ''' When band bar bottom/left are provided, snaps to the bottom-left
+    ''' of the band bar table (right-aligned).  Otherwise falls back to
+    ''' upper-right area of the sheet.
+    ''' </summary>
+    Private Function GetCrossBarTablePosition(sheet As Sheet,
+                                               bandBarBottom As Double?,
+                                               bandBarLeftX As Double?) As Double()
+        If bandBarBottom.HasValue AndAlso bandBarLeftX.HasValue Then
+            ' Snap top-left of cross bar table to band bar bottom-left
+            Return New Double() {bandBarLeftX.Value, bandBarBottom.Value}
+        End If
+
+        ' Fallback when no band bar table exists
+        Return New Double() {
+            sheet.Width * 0.72,
+            sheet.Height * 0.85
+        }
+    End Function
+
+    ''' <summary>
+    ''' Returns the position {X, Y} in cm for the band bar schedule table.
+    ''' Snapped to the top-right corner of the drawing border.
+    ''' The border is 0.5" from the top edge and 5.5"+0.5" from the
+    ''' right edge of the D-size sheet.
+    ''' </summary>
+    Private Function GetBandBarTablePosition(sheet As Sheet) As Double()
+        Const TopBorderMargin As Double = 1.27       ' 0.5 in = 1.27 cm
+        Const RightMarginFromEdge As Double = 15.24  ' (5.5 + 0.5) in = 15.24 cm
+
+        ' Y = top of border (placement point is table top-left)
+        Dim tableY As Double = sheet.Height - TopBorderMargin
+        ' X = initial estimate; will be corrected after placement
+        Dim tableX As Double = sheet.Width - RightMarginFromEdge
+
+        Return New Double() {tableX, tableY}
+    End Function
+
+    ' ==================================================================
+    '  Grating specifications table
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Places a two-column specifications table (label | value) on
+    ''' the drawing sheet, matching the standard fabrication drawing
+    ''' format: Grating Type, Bearing Bar Size, spacings, surface,
+    ''' banding, band bar size, finish, and fasteners.
+    ''' </summary>
+    Private Sub PlaceSpecificationsTable(sheet As Sheet, project As GratingProject)
+        Dim p As GratingParameters = project.Parameters
+        If p Is Nothing Then Return
+
+        ' Build rows: {label, value}
+        Dim rows As New List(Of String())
+
+        rows.Add({"GRATING TYPE", BuildGratingTypeCode(p)})
+        rows.Add({"BEARING BAR SIZE", FormatBarSize(p.BarDepth, p.BarWidth)})
+        rows.Add({"BEARING BAR O.C. SPACING", FormatDimensionForTable(p.OnCenterSpacing)})
+        rows.Add({"CROSS BAR O.C. SPACING", FormatDimensionForTable(p.CrossBarOnCenter)})
+        rows.Add({"SURFACE", If(p.SurfaceProfile = SurfaceProfileType.Serrated, "SERRATED", "PLAIN")})
+        rows.Add({"BANDING TYPE", If(p.Banding = BandingOptionType.Banded, "TRENCH BAND", "OPEN ENDED")})
+
+        If p.Banding = BandingOptionType.Banded Then
+            rows.Add({"BAND BAR SIZE", FormatBarSize(p.BarDepth, p.BarWidth)})
+        End If
+
+        rows.Add({"FINISH", "HOT DIP GALVANIZED PER ASTM A123"})
+        rows.Add({"FASTENERS", "WELD LUG (4) PER GRATE"})
+
+        Dim numRows As Integer = rows.Count
+
+        ' Position: snap table's bottom-left to the inside corner of
+        ' the border.  The border is 0.5" (1.27 cm) from the paper edge
+        ' on all sides (D-size sheet template).
+        '
+        ' Strategy: place the table at an initial position, read back
+        ' its actual RangeBox height, then reposition so the bottom
+        ' edge sits exactly at BorderMargin.
+        Dim tg As TransientGeometry = _app.TransientGeometry
+        Const BorderMargin As Double = 1.27  ' 0.5 inch in cm
+
+        ' Initial placement — put it high enough that it won't clip
+        ' while we measure its actual height.
+        Dim tableX As Double = BorderMargin
+        Dim initialY As Double = BorderMargin + 20.0  ' generous initial offset
+        Dim tablePt As Point2d = tg.CreatePoint2d(tableX, initialY)
+
+        ' Create table with headers only — fill cells individually
+        Dim headers As String() = {"SPECIFICATION", "VALUE"}
+        Dim table As CustomTable = sheet.CustomTables.Add(
+            "GRATING SPECIFICATIONS", tablePt, 2, numRows, headers)
+
+        ' Set column widths (cm)
+        table.Columns.Item(1).Width = 6.0
+        table.Columns.Item(2).Width = 8.0
+
+        ' Fill cell data
+        For i As Integer = 0 To numRows - 1
+            table.Rows.Item(i + 1).Item(1).Value = rows(i)(0)
+            table.Rows.Item(i + 1).Item(2).Value = rows(i)(1)
+        Next
+
+        ' Reposition so bottom edge sits exactly at BorderMargin.
+        ' RangeBox gives us the actual rendered extents of the table.
+        Try
+            Dim rb As Box2d = table.RangeBox
+            Dim actualBottom As Double = rb.MinPoint.Y
+            Dim actualTop As Double = rb.MaxPoint.Y
+            Dim actualHeight As Double = actualTop - actualBottom
+
+            ' The placement point is the top-left corner of the table.
+            ' We want bottom = BorderMargin, so top = BorderMargin + height.
+            Dim targetY As Double = BorderMargin + actualHeight
+            Dim currentPos As Point2d = table.Position
+            table.Position = tg.CreatePoint2d(currentPos.X, targetY)
+
+            Trace.TraceInformation(
+                ": HMG Phase 20: Specs table repositioned — height=" &
+                actualHeight.ToString("F2") & " cm, bottom at " &
+                BorderMargin.ToString("F2") & " cm.")
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG Phase 20: Could not reposition specs table — " & ex.Message)
+        End Try
+
+        Trace.TraceInformation(": HMG Phase 20: Specifications table placed (" &
+            numRows & " rows).")
+    End Sub
+
+    ''' <summary>
+    ''' Builds the standard grating type code.
+    ''' Format: {BarOC_denominator}-W-{CrossBarOC}
+    ''' Example: 19-W-4 means 19/16" (1-3/16") OC bearing bars,
+    ''' welded, 4" OC cross bars.
+    ''' </summary>
+    Private Shared Function BuildGratingTypeCode(p As GratingParameters) As String
+        ' Convert bearing bar OC to sixteenths for the standard code
+        Dim sixteenths As Integer = CInt(Math.Round(p.OnCenterSpacing * 16))
+        Dim crossBarOC As Integer = CInt(Math.Round(p.CrossBarOnCenter))
+        Return sixteenths & "-W-" & crossBarOC
+    End Function
+
+    ''' <summary>
+    ''' Formats a bar size as "Depth x Width" with fractional inches.
+    ''' Example: 4-1/2" x 3/8"
+    ''' </summary>
+    Private Shared Function FormatBarSize(depth As Double, width As Double) As String
+        Return FormatDimensionForTable(depth) & " X " & FormatDimensionForTable(width)
+    End Function
+
+    ''' <summary>
+    ''' Formats a dimension in inches as a fractional string for table display.
+    ''' Similar to FormatFractionalInches but uses " for the inch mark
+    ''' and handles values >= 12 with feet notation.
+    ''' </summary>
+    Private Shared Function FormatDimensionForTable(inches As Double) As String
+        If inches <= 0 Then Return "0"""
+
+        Dim wholeInches As Integer = CInt(Math.Floor(inches))
+        Dim frac As Double = inches - wholeInches
+
+        ' Round to nearest 1/16
+        Dim sixteenths As Integer = CInt(Math.Round(frac * 16))
+        If sixteenths >= 16 Then
+            wholeInches += 1
+            sixteenths = 0
+        End If
+
+        ' Reduce the fraction
+        Dim num As Integer = sixteenths
+        Dim den As Integer = 16
+        If num > 0 Then
+            While num Mod 2 = 0 AndAlso den > 1
+                num \= 2
+                den \= 2
+            End While
+        End If
+
+        If num = 0 Then
+            Return wholeInches & """"
+        ElseIf wholeInches = 0 Then
+            Return num & "/" & den & """"
+        Else
+            Return wholeInches & "-" & num & "/" & den & """"
+        End If
+    End Function
+
+    ' ==================================================================
+    '  File path helpers
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Builds the drawing file path. Pattern: {Prefix}_DWG.idw
+    ''' </summary>
+    Private Function BuildDrawingFilePath(outputFolder As String,
+                                          prefix As String) As String
+        Dim baseName As String = prefix & "_DWG"
+        Dim fileName As String = baseName & ".idw"
+        Dim fullPath As String = IO.Path.Combine(outputFolder, fileName)
+
+        ' Avoid overwriting
+        If IO.File.Exists(fullPath) Then
+            Dim counter As Integer = 1
+            Do
+                fileName = baseName & "_" & counter & ".idw"
+                fullPath = IO.Path.Combine(outputFolder, fileName)
+                counter += 1
+            Loop While IO.File.Exists(fullPath) AndAlso counter < 1000
+        End If
+
+        Return fullPath
+    End Function
+
+    ''' <summary>
+    ''' Removes characters that are invalid in file names.
+    ''' </summary>
+    Private Function SanitizeFileName(name As String) As String
+        Dim invalid() As Char = IO.Path.GetInvalidFileNameChars()
+        Dim result As New System.Text.StringBuilder()
+        For Each c As Char In name
+            If Array.IndexOf(invalid, c) < 0 Then
+                result.Append(c)
+            Else
+                result.Append("_"c)
+            End If
+        Next
+        If result.Length = 0 Then Return "Grating"
+        Return result.ToString()
+    End Function
+
+End Class

@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<OutputType>Exe</OutputType>
+		<PackagePath>..\..\packages</PackagePath>
+		<PackagePath Condition="Exists('..\packages')">..\packages</PackagePath>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<AssemblyTitle>DebugPluginLocally</AssemblyTitle>
+		<Product>DebugPluginLocally</Product>
+		<Copyright>Copyright ©  2018</Copyright>
+		<AssemblyVersion>1.0.0.0</AssemblyVersion>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(InventorBinFolder)' == '' and Exists('C:\Program Files\Autodesk\Inventor 2026\Bin\Public Assemblies\autodesk.inventor.interop.dll')">
+		<InventorBinFolder>C:\Program Files\Autodesk\Inventor 2026\Bin</InventorBinFolder>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(InventorBinFolder)' == '' and Exists('C:\Program Files\Autodesk\Inventor 2025\Bin\Public Assemblies\autodesk.inventor.interop.dll')">
+		<InventorBinFolder>C:\Program Files\Autodesk\Inventor 2025\Bin</InventorBinFolder>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(InventorBinFolder)' == '' and Exists('C:\Program Files\Autodesk\Inventor 2024\Bin\Public Assemblies\autodesk.inventor.interop.dll')">
+		<InventorBinFolder>C:\Program Files\Autodesk\Inventor 2024\Bin</InventorBinFolder>
+	</PropertyGroup>
+	<ItemGroup>
+		<Reference Include="Autodesk.Inventor.Interop">
+			<SpecificVersion>False</SpecificVersion>
+			<EmbedInteropTypes>False</EmbedInteropTypes>
+			<HintPath>$(InventorBinFolder)\Public Assemblies\autodesk.inventor.interop.dll</HintPath>
+			<Private>True</Private>
+		</Reference>
+	</ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+		<PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.1" />
+		<PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
+	</ItemGroup>
+	<ItemGroup>
+	<ProjectReference Include="..\HandMadeGratingAddinVB\HandMadeGratingAddinVB.vbproj">
+		<Name>HandMadeGratingAddinVB</Name>
+	</ProjectReference>
+	</ItemGroup>
+</Project>

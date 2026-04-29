@@ -1,0 +1,243 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingAssemblyGenerator: Creates an Inventor assembly (.iam) and
+' inserts all generated bearing bar .ipt files at their correct
+' positions from the layout engine results.
+'
+' Phase 7: Assembly generation from Phase 5 layout + Phase 6 parts.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Generates an Inventor assembly containing all bearing bar parts
+''' placed at their correct spatial positions.
+''' </summary>
+Public Class GratingAssemblyGenerator
+
+    Private ReadOnly _app As Application
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Creates and saves an assembly with all successfully generated
+    ''' bearing bar and cross bar parts positioned according to the
+    ''' layout result.
+    ''' </summary>
+    Public Function Generate(genResult As BearingBarGenerationResult,
+                             layoutResult As BearingBarLayoutResult,
+                             params As GratingParameters,
+                             Optional crossBarResult As CrossBarGenerationResult = Nothing) As AssemblyGenerationResult
+        Try
+            ' Validate inputs
+            If genResult Is Nothing OrElse Not genResult.Success Then
+                Return AssemblyGenerationResult.Failed(
+                    "No valid bearing bar generation result available.")
+            End If
+
+            If layoutResult Is Nothing OrElse Not layoutResult.Success Then
+                Return AssemblyGenerationResult.Failed(
+                    "No valid bearing bar layout result available.")
+            End If
+
+            If genResult.TotalSaved = 0 Then
+                Return AssemblyGenerationResult.Failed(
+                    "No bearing bar files were saved. Nothing to assemble.")
+            End If
+
+            ' Build assembly file path
+            Dim assemblyPath As String = BuildAssemblyFilePath(
+                genResult.OutputFolder, params.NamingPrefix)
+
+            Trace.TraceInformation(": HMG Assembly: Creating assembly at " & assemblyPath)
+
+            ' Create assembly document (visible so user can see result)
+            Dim templateFile As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kAssemblyDocumentObject)
+
+            Dim asmDoc As AssemblyDocument = CType(
+                _app.Documents.Add(
+                    DocumentTypeEnum.kAssemblyDocumentObject,
+                    templateFile,
+                    True),
+                AssemblyDocument)
+
+            Dim asmDef As AssemblyComponentDefinition = asmDoc.ComponentDefinition
+            Dim tg As TransientGeometry = _app.TransientGeometry
+
+            Dim inserted As Integer = 0
+            Dim skipped As Integer = 0
+            Dim warnings As New List(Of String)
+
+            ' Insert each saved bearing bar
+            For Each genFile As GeneratedBearingBarFile In genResult.Files
+                If Not genFile.Saved Then
+                    skipped += 1
+                    warnings.Add("Skipped " & genFile.SourceBar.Mark &
+                                 ": part file was not saved.")
+                    Trace.TraceWarning(": HMG Assembly: Skipped " &
+                        genFile.SourceBar.Mark & " — not saved.")
+                    Continue For
+                End If
+
+                If Not IO.File.Exists(genFile.FilePath) Then
+                    skipped += 1
+                    warnings.Add("Skipped " & genFile.SourceBar.Mark &
+                                 ": file not found at " & genFile.FilePath)
+                    Trace.TraceWarning(": HMG Assembly: Skipped " &
+                        genFile.SourceBar.Mark & " — file not found.")
+                    Continue For
+                End If
+
+                Try
+                    Dim matrix As Matrix = BuildPlacementMatrix(
+                        genFile.SourceBar, params, tg)
+
+                    asmDef.Occurrences.Add(genFile.FilePath, matrix)
+                    inserted += 1
+
+                    Trace.TraceInformation(": HMG Assembly:   Inserted " &
+                        genFile.SourceBar.Mark & " at (" &
+                        genFile.SourceBar.StartPoint(0).ToString("F3") & ", " &
+                        genFile.SourceBar.StartPoint(1).ToString("F3") & ")")
+
+                Catch ex As Exception
+                    skipped += 1
+                    warnings.Add("Failed to insert " & genFile.SourceBar.Mark &
+                                 ": " & ex.Message)
+                    Trace.TraceError(": HMG Assembly:   FAILED " &
+                        genFile.SourceBar.Mark & " — " & ex.Message)
+                End Try
+            Next
+
+            If inserted = 0 Then
+                ' Close without saving — nothing was inserted
+                Try
+                    asmDoc.Close(True)
+                Catch
+                End Try
+                Return AssemblyGenerationResult.Failed(
+                    "No bearing bars could be inserted into the assembly.")
+            End If
+
+            ' Save the assembly
+            Try
+                asmDoc.SaveAs(assemblyPath, False)
+                Trace.TraceInformation(": HMG Assembly: Saved assembly — " &
+                    inserted & " bars inserted to " & assemblyPath)
+            Catch ex As Exception
+                Trace.TraceError(": HMG Assembly: Failed to save — " & ex.Message)
+                warnings.Add("Assembly created but save failed: " & ex.Message)
+                Return AssemblyGenerationResult.Failed(
+                    "Assembly created with " & inserted &
+                    " bars but failed to save: " & ex.Message)
+            End Try
+
+            Return AssemblyGenerationResult.Succeeded(
+                assemblyPath, inserted, skipped, warnings)
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG Assembly: Unexpected error — " & ex.ToString())
+            Return AssemblyGenerationResult.Failed(
+                "Assembly generation error: " & ex.Message)
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Builds the 4×4 placement matrix to position a bearing bar
+    ''' occurrence in assembly space.
+    '''
+    ''' Each bearing bar .ipt has its geometry from origin (0,0,0):
+    '''   - Length along +X, Width (thickness) along +Y, Depth along +Z.
+    '''
+    ''' For AlongX bars: translate so bar start aligns with StartPoint
+    '''   and bar centerline sits on the lateral (Y) position.
+    '''
+    ''' For AlongY bars: rotate 90° around Z so bar length runs along Y,
+    '''   then translate to the correct position.
+    ''' </summary>
+    Private Function BuildPlacementMatrix(bar As TrimmedBearingBar,
+                                          params As GratingParameters,
+                                          tg As TransientGeometry) As Matrix
+        Dim matrix As Matrix = tg.CreateMatrix()
+
+        ' All coordinates converted from inches to cm (Inventor internal units)
+        Dim halfWidthCm As Double = (params.BarWidth / 2.0) * 2.54
+
+        If bar.SpanDirection = SpanDirectionType.AlongX Then
+            ' No rotation needed — bar already runs along X in part space.
+            ' Translate: X = startX, Y = lateralY - halfWidth (center on lateral line)
+            Dim txCm As Double = bar.StartPoint(0) * 2.54
+            Dim tyCm As Double = (bar.StartPoint(1) * 2.54) - halfWidthCm
+
+            matrix.SetTranslation(tg.CreateVector(txCm, tyCm, 0))
+
+        ElseIf bar.SpanDirection = SpanDirectionType.AlongY Then
+            ' Rotate 90° around Z so bar length runs along +Y.
+            ' After rotation: part +X → assembly +Y, part +Y → assembly -X.
+            ' Bar centerline (at part Y = width/2) maps to assembly X = -width/2.
+            ' To center on lateralX: translate X = lateralX + halfWidth.
+            matrix.SetToRotation(
+                Math.PI / 2.0,
+                tg.CreateVector(0, 0, 1),
+                tg.CreatePoint(0, 0, 0))
+
+            Dim txCm As Double = (bar.StartPoint(0) * 2.54) + halfWidthCm
+            Dim tyCm As Double = bar.StartPoint(1) * 2.54
+
+            ' Set translation via Cell to preserve the rotation components
+            matrix.Cell(1, 4) = txCm
+            matrix.Cell(2, 4) = tyCm
+            matrix.Cell(3, 4) = 0
+        End If
+
+        Return matrix
+    End Function
+
+    ''' <summary>
+    ''' Builds a unique .iam file path in the output folder.
+    ''' Pattern: {Prefix}_Assembly.iam (with counter if exists).
+    ''' </summary>
+    Private Function BuildAssemblyFilePath(outputFolder As String,
+                                           prefix As String) As String
+        Dim safePfx As String = SanitizeFileName(If(prefix, "Grating"))
+        Dim baseName As String = safePfx & "_Assembly"
+        Dim fileName As String = baseName & ".iam"
+        Dim fullPath As String = IO.Path.Combine(outputFolder, fileName)
+
+        ' Avoid overwriting existing assemblies
+        If IO.File.Exists(fullPath) Then
+            Dim counter As Integer = 1
+            Do
+                fileName = baseName & "_" & counter & ".iam"
+                fullPath = IO.Path.Combine(outputFolder, fileName)
+                counter += 1
+            Loop While IO.File.Exists(fullPath) AndAlso counter < 1000
+        End If
+
+        Return fullPath
+    End Function
+
+    ''' <summary>
+    ''' Removes characters that are invalid in file names.
+    ''' </summary>
+    Private Function SanitizeFileName(name As String) As String
+        Dim invalid() As Char = IO.Path.GetInvalidFileNameChars()
+        Dim result As New System.Text.StringBuilder()
+        For Each c As Char In name
+            If Array.IndexOf(invalid, c) < 0 Then
+                result.Append(c)
+            Else
+                result.Append("_"c)
+            End If
+        Next
+        If result.Length = 0 Then Return "Grating"
+        Return result.ToString()
+    End Function
+
+End Class

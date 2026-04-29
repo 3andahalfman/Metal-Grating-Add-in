@@ -1,0 +1,230 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' SketchEditInstructionForm: Modeless instruction dialog shown while
+' the user draws the grating boundary or notch profile in a sketch.
+' Uses owned-window display (via InventorHwnd) to stay above Inventor
+' without stealing focus, so sketch tools remain accessible.
+'
+' Phase 16: "Create new boundary sketch" workflow.
+'
+' Design choice — user-confirmed flow:
+'   This form uses a DoEvents loop (like NoBoundarySketchForm) so the
+'   user can interact with Inventor while the instructions remain
+'   visible.  The user clicks "I'm Done" when they finish drawing.
+'   This approach is more stable than event-driven auto-detection
+'   because Inventor's sketch-exit events can be unreliable when
+'   fired from an add-in context, especially across COM boundaries.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Drawing
+Imports System.Windows.Forms
+
+''' <summary>
+''' Modeless instruction form shown while the user draws a perimeter
+''' in the newly created boundary sketch.  Stays visible until the
+''' user clicks "I'm Done" or "Cancel".
+''' </summary>
+Public Class SketchEditInstructionForm
+    Inherits Form
+
+    ''' <summary>Action chosen by the user when the form is dismissed.</summary>
+    Public Enum UserAction
+        ''' <summary>User finished drawing the perimeter.</summary>
+        Done = 0
+        ''' <summary>User cancelled the workflow.</summary>
+        Cancel = 1
+    End Enum
+
+    Private _action As UserAction = UserAction.Cancel
+    Private _dismissed As Boolean = False
+
+    Private ReadOnly _sketchName As String
+    Private ReadOnly _customHeading As String
+    Private ReadOnly _customInstructions As String
+
+    ''' <summary>
+    ''' Set to Inventor's MainFrameHWND before calling ShowNonModal so
+    ''' the form stays above Inventor without stealing focus.
+    ''' </summary>
+    Public Property InventorHwnd As IntPtr = IntPtr.Zero
+
+    ' --- Prevent the form from stealing keyboard focus from Inventor ---
+    Protected Overrides ReadOnly Property ShowWithoutActivation As Boolean
+        Get
+            Return True
+        End Get
+    End Property
+
+    ' --- Public result ---
+
+    ''' <summary>
+    ''' The action the user chose when the form was dismissed.
+    ''' Only meaningful after ShowNonModal returns.
+    ''' </summary>
+    Public ReadOnly Property SelectedAction As UserAction
+        Get
+            Return _action
+        End Get
+    End Property
+
+    ''' <summary>Creates the form with instructions for the given sketch name.
+    ''' Optionally accepts custom heading and instruction text.</summary>
+    Public Sub New(sketchName As String,
+                   Optional customHeading As String = Nothing,
+                   Optional customInstructions As String = Nothing)
+        _sketchName = sketchName
+        _customHeading = customHeading
+        _customInstructions = customInstructions
+        InitializeControls()
+    End Sub
+
+    ' ==================================================================
+    '  Non-modal wait loop
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Shows the form modeless (non-blocking) so the user can interact
+    ''' with Inventor behind it, then waits in a DoEvents loop until
+    ''' the user clicks "I'm Done" or "Cancel".
+    ''' </summary>
+    Public Function ShowNonModal() As UserAction
+        _dismissed = False
+        _action = UserAction.Cancel
+        Me.TopMost = False
+
+        ' Show as owned child of Inventor so the form stays above
+        ' the Inventor window but does not steal focus or block
+        ' sketch tool interaction.
+        If InventorHwnd <> IntPtr.Zero Then
+            Me.Show(New Win32WindowWrapper(InventorHwnd))
+        Else
+            Me.Show()
+        End If
+
+        While Not _dismissed
+            Application.DoEvents()
+            Threading.Thread.Sleep(50)
+        End While
+
+        Return _action
+    End Function
+
+    ' ==================================================================
+    '  Prevent accidental closure via X button without setting action
+    ' ==================================================================
+
+    Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)
+        If Not _dismissed Then
+            ' User clicked the X button — treat as Cancel
+            _action = UserAction.Cancel
+            _dismissed = True
+        End If
+        MyBase.OnFormClosing(e)
+    End Sub
+
+    ' ==================================================================
+    '  Event handlers
+    ' ==================================================================
+
+    Private Sub OnDoneClick(sender As Object, e As EventArgs)
+        _action = UserAction.Done
+        _dismissed = True
+        Me.Close()
+    End Sub
+
+    Private Sub OnCancelClick(sender As Object, e As EventArgs)
+        _action = UserAction.Cancel
+        _dismissed = True
+        Me.Close()
+    End Sub
+
+    ' ==================================================================
+    '  Control layout
+    ' ==================================================================
+
+    Private Sub InitializeControls()
+        Me.Text = If(_customHeading IsNot Nothing,
+            "Hand Made Grating — Notch Profile",
+            "Hand Made Grating — Draw Boundary")
+        Me.FormBorderStyle = FormBorderStyle.FixedDialog
+        Me.MaximizeBox = False
+        Me.MinimizeBox = False
+        Me.StartPosition = FormStartPosition.CenterScreen
+        Me.ShowInTaskbar = True
+        Me.TopMost = False
+
+        Dim pad As Integer = 18
+        Dim yPos As Integer = pad
+        Dim contentWidth As Integer = 430
+
+        ' --- Heading ---
+        Dim lblHeading As New Label()
+        lblHeading.Text = If(_customHeading,
+            "Draw your grating boundary perimeter")
+        lblHeading.Font = New Font(Me.Font.FontFamily, Me.Font.Size, FontStyle.Bold)
+        lblHeading.Location = New Point(pad, yPos)
+        lblHeading.AutoSize = True
+        Me.Controls.Add(lblHeading)
+        yPos += 28
+
+        ' --- Instructions ---
+        Dim instructions As String = If(_customInstructions,
+            "A new sketch """ & _sketchName & """ has been created and " &
+            "opened for editing." & vbCrLf & vbCrLf &
+            "Draw a closed perimeter that defines the grating outline:" & vbCrLf &
+            "  " & ChrW(&H2022) & " Use Lines, Arcs, or Splines" & vbCrLf &
+            "  " & ChrW(&H2022) & " All curves must connect end-to-end" & vbCrLf &
+            "  " & ChrW(&H2022) & " The perimeter must form at least one closed loop" & vbCrLf & vbCrLf &
+            "When you are finished drawing, click ""I'm Done"" below." & vbCrLf &
+            "The add-in will validate your sketch and continue.")
+
+        Dim lblInstructions As New Label()
+        lblInstructions.Text = instructions
+        lblInstructions.Location = New Point(pad, yPos)
+        lblInstructions.Size = New Size(contentWidth, 160)
+        Me.Controls.Add(lblInstructions)
+        yPos += 168
+
+        ' --- Buttons ---
+        Dim btnDone As New Button()
+        btnDone.Text = "I'm Done"
+        btnDone.Size = New Size(100, 28)
+        btnDone.Location = New Point(contentWidth - 194 + pad, yPos)
+        AddHandler btnDone.Click, AddressOf OnDoneClick
+        Me.Controls.Add(btnDone)
+
+        Dim btnCancel As New Button()
+        btnCancel.Text = "Cancel"
+        btnCancel.Size = New Size(90, 28)
+        btnCancel.Location = New Point(contentWidth - 84 + pad, yPos)
+        AddHandler btnCancel.Click, AddressOf OnCancelClick
+        Me.Controls.Add(btnCancel)
+
+        Me.AcceptButton = btnDone
+        Me.CancelButton = btnCancel
+
+        Me.ClientSize = New Size(contentWidth + pad * 2, yPos + 42)
+    End Sub
+
+    ' ==================================================================
+    '  Helper: wraps a raw HWND as IWin32Window for Form.Show(owner)
+    ' ==================================================================
+
+    Private Class Win32WindowWrapper
+        Implements IWin32Window
+
+        Private ReadOnly _handle As IntPtr
+
+        Public Sub New(handle As IntPtr)
+            _handle = handle
+        End Sub
+
+        Public ReadOnly Property Handle As IntPtr Implements IWin32Window.Handle
+            Get
+                Return _handle
+            End Get
+        End Property
+    End Class
+
+End Class

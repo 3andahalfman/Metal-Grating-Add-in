@@ -1,0 +1,903 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{17F693D6-86E9-44A3-9A69-3569E0BCE8B2}|HandMadeGratingAddinPlugin\\HandMadeGratingAddinPlugin.csproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinplugin\\sampleautomation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{17F693D6-86E9-44A3-9A69-3569E0BCE8B2}|HandMadeGratingAddinPlugin\\HandMadeGratingAddinPlugin.csproj|solutionrelative:handmadegratingaddinplugin\\sampleautomation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{6AC696F2-6B41-46F5-B902-8B8D22E74CE5}|Interaction\\Interaction.csproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\interaction\\publisher.custom.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6AC696F2-6B41-46F5-B902-8B8D22E74CE5}|Interaction\\Interaction.csproj|solutionrelative:interaction\\publisher.custom.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\handmadegratingaddinvb.vbproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\handmadegratingaddinvb.vbproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\drawinggenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\drawinggenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\dockablewindowmanager.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\dockablewindowmanager.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\ui\\hmgpanelcontrol.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\ui\\hmgpanelcontrol.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{17F693D6-86E9-44A3-9A69-3569E0BCE8B2}|HandMadeGratingAddinPlugin\\HandMadeGratingAddinPlugin.csproj|C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\handmadegratingaddinplugin\\pluginserver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{17F693D6-86E9-44A3-9A69-3569E0BCE8B2}|HandMadeGratingAddinPlugin\\HandMadeGratingAddinPlugin.csproj|solutionrelative:handmadegratingaddinplugin\\pluginserver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\geometry\\bearingbarlayoutservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\geometry\\bearingbarlayoutservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\bearingbargenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\bearingbargenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\generatedbearingbarfile.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\generatedbearingbarfile.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\commands\\gratingcommand.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\commands\\gratingcommand.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Geometry\\_ReadMe.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:HandMadeGratingAddinVB\\Geometry\\_ReadMe.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\inputvalidationservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\inputvalidationservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\trimmedbearingbar.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\trimmedbearingbar.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\bearingbarlayoutresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\bearingbarlayoutresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\outputpathservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\outputpathservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\bearingbarpartgenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\bearingbarpartgenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\handmadegratingaddinvb.inventor.addin||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\handmadegratingaddinvb.inventor.addin||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\standardaddinserver.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\standardaddinserver.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\.github\\copilot-instructions.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:.github\\copilot-instructions.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\assemblygenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\assemblygenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\gratingassemblygenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\gratingassemblygenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\gratingparameters.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\gratingparameters.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\ui\\gratinginputform.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\ui\\gratinginputform.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\crossbarnotchspec.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\crossbarnotchspec.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\bearingbarnotchservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\bearingbarnotchservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\boundarysourceinfo.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\boundarysourceinfo.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\gratingproject.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\gratingproject.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\ui\\boundarysourcedialog.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\ui\\boundarysourcedialog.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\geometry\\perimeterextractor.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\geometry\\perimeterextractor.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\boundarysourceservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\boundarysourceservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\crossbarprofilelibrary.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\crossbarprofilelibrary.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\dwgimportservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\dwgimportservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\ui\\noboundarysketchform.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\ui\\noboundarysketchform.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\commands\\gratingcommandmanager.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\commands\\gratingcommandmanager.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\crossbarentry.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\crossbarentry.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\generatedcrossbarfile.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\generatedcrossbarfile.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\crossbargenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\crossbargenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\crossbarpartgenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\crossbarpartgenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\notchprofiledata.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\notchprofiledata.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\notchprofileeditorservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\notchprofileeditorservice.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\generatedbandbarfile.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\generatedbandbarfile.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\bandbargenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\bandbargenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\bandbargenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\bandbargenerator.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\perimeterarcinfo.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\perimeterarcinfo.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\perimeterdata.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\perimeterdata.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\schedulerow.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\schedulerow.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\fabricationscheduleresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\fabricationscheduleresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\services\\fabricationschedulebuilder.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\services\\fabricationschedulebuilder.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\models\\drawinggenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\models\\drawinggenerationresult.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Installer\\MetalBarGrating.iss||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:Installer\\MetalBarGrating.iss||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{6AC696F2-6B41-46F5-B902-8B8D22E74CE5}|Interaction\\Interaction.csproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\interaction\\publisher.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6AC696F2-6B41-46F5-B902-8B8D22E74CE5}|Interaction\\Interaction.csproj|solutionrelative:interaction\\publisher.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4D8D6556-5A90-C77E-10E4-D6F86F659E00}|DebugPluginLocally\\DebugPluginLocally.csproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\debugpluginlocally\\inputfiles\\gratingparams.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{4D8D6556-5A90-C77E-10E4-D6F86F659E00}|DebugPluginLocally\\DebugPluginLocally.csproj|solutionrelative:debugpluginlocally\\inputfiles\\gratingparams.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\handmadegratingaddinvb\\my project\\assemblyinfo.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}",
+      "RelativeMoniker": "D:0:0:{8ECFE1D9-D638-6DC9-2809-45ED883393BF}|HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj|solutionrelative:handmadegratingaddinvb\\my project\\assemblyinfo.vb||{2C015C70-C72C-11D0-88C3-00A0C9110049}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4D8D6556-5A90-C77E-10E4-D6F86F659E00}|DebugPluginLocally\\DebugPluginLocally.csproj|c:\\users\\emera\\onedrive\\documents\\addin\\handmadegratingaddin\\debugpluginlocally\\debugpluginlocally.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{4D8D6556-5A90-C77E-10E4-D6F86F659E00}|DebugPluginLocally\\DebugPluginLocally.csproj|solutionrelative:debugpluginlocally\\debugpluginlocally.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 5,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "PluginServer.cs",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinPlugin\\PluginServer.cs",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinPlugin\\PluginServer.cs",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinPlugin\\PluginServer.cs",
+              "RelativeToolTip": "HandMadeGratingAddinPlugin\\PluginServer.cs",
+              "ViewState": "AgIAAB0AAAAAAAAAAAAAwDIAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-03-31T17:39:05.399Z",
+              "IsPinned": true
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "_ReadMe.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Geometry\\_ReadMe.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Geometry\\_ReadMe.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Geometry\\_ReadMe.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Geometry\\_ReadMe.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-03-31T17:39:57.88Z",
+              "IsPinned": true
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Publisher.Custom.cs",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\Publisher.Custom.cs",
+              "RelativeDocumentMoniker": "Interaction\\Publisher.Custom.cs",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\Publisher.Custom.cs",
+              "RelativeToolTip": "Interaction\\Publisher.Custom.cs",
+              "ViewState": "AgIAABsAAAAAAAAAAAAjwDIAAAANAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-16T13:57:54.102Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 52,
+              "Title": "gratingParams.json",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\inputFiles\\gratingParams.json",
+              "RelativeDocumentMoniker": "DebugPluginLocally\\inputFiles\\gratingParams.json",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\inputFiles\\gratingParams.json",
+              "RelativeToolTip": "DebugPluginLocally\\inputFiles\\gratingParams.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-04-16T15:38:42.68Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 53,
+              "Title": "AssemblyInfo.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\My Project\\AssemblyInfo.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\My Project\\AssemblyInfo.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\My Project\\AssemblyInfo.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\My Project\\AssemblyInfo.vb",
+              "ViewState": "AgIAAB8AAAAAAAAAAABBwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-17T06:36:45.733Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "SampleAutomation.cs",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinPlugin\\SampleAutomation.cs",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinPlugin\\SampleAutomation.cs",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinPlugin\\SampleAutomation.cs",
+              "RelativeToolTip": "HandMadeGratingAddinPlugin\\SampleAutomation.cs",
+              "ViewState": "AgIAABUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-16T15:38:19.167Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 51,
+              "Title": "Publisher.cs",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\Publisher.cs",
+              "RelativeDocumentMoniker": "Interaction\\Publisher.cs",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\Publisher.cs",
+              "RelativeToolTip": "Interaction\\Publisher.cs",
+              "ViewState": "AgIAABUAAAAAAAAAAABBwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-16T15:37:22.232Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "HandMadeGratingAddinVB.vbproj",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
+              "ViewState": "AgIAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003380|",
+              "WhenOpened": "2026-04-01T16:08:01.697Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 54,
+              "Title": "DebugPluginLocally.csproj",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\DebugPluginLocally.csproj",
+              "RelativeDocumentMoniker": "DebugPluginLocally\\DebugPluginLocally.csproj",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\DebugPluginLocally.csproj",
+              "RelativeToolTip": "DebugPluginLocally\\DebugPluginLocally.csproj",
+              "ViewState": "AgIAACUAAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-04-24T18:59:31.093Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 50,
+              "Title": "MetalBarGrating.iss",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Installer\\MetalBarGrating.iss",
+              "RelativeDocumentMoniker": "Installer\\MetalBarGrating.iss",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Installer\\MetalBarGrating.iss",
+              "RelativeToolTip": "Installer\\MetalBarGrating.iss",
+              "ViewState": "AgIAAHcAAAAAAAAAAABBwHgAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAR3SURBVDhPlZTfb1NlGMc/7zmnp6e/trUdbG1Zt7Fht/GjG5uF4VBmYogBYjCQeCExMfHCW/xbvDKQYIzxCoKYGBQSiIkkDhxDEJ2A29gvyuhp127lrOe8rxcty0y88Zu8eW\u002B\u002B7ydPnuf7vIIt2j86fuaDTz67IJUCpVCA2mpoSDRut\u002BYA6vNfbl49f\u002BWbc5MopYytRgWEQn6OjQ3iM/T/hL1SzXW5cuM2pdXKqf6hg5bP9H9xUQihbzUlOrqyudE3T47tzxCwTBQ6SuiELJNYJEAkaBEOWoSCFj6fwdQfMwQCgXBzc1OrYQVbovHtT/8FbEums/1DoycD21JM2y738g5Tyw73Fh1mn1VwaxuYhsBnGGzUXCYfPkbTdQSi2UWkdnT2\u002BDeBwmf54\u002Bldw4nduRMLvu1M5CUTeY\u002Bf5mtc/H2N61PLVMslmk1FNOxH1wQzC3mqVQcBWKYvXHU2cptAq3uoL5Y7/k5i5MjoYHeUfW1\u002BeloNmpp8uJbBI8dgYuoJz\u002BcXaDVddnUm2dm5g72ZTrJ93aS2xbg/PYsGQKRNhF4bO5bKHj65Jx0nGzfZEzPobfaRjui0RXSCUQsv3sLPcy/4\u002BtodFpeeI5VE03SE0EATeJ7XAIZTe81E30g0kU4nm3wEjXo0pFKoV6PWwIr4cU3Bo/wK129NUCqv4XoS1wPXVchNoD9\u002BwBeOdVoBS/OUZK7s8rjsMVvxWFyXFBxFzFCM72zm9GgvuT2dzC4/o\u002Bo4uJ7CVQpPKpSSGABCN3uaLS1m6B5/FV0eSIGhC1YdxZNSjfnVGgPhGmeHU\u002BTad7FiF7n5630M3aDm1iGelHhS1isMhb3QSIcwgxace7jGD/MO1\u002BYdri043FqqMr24woPpR/w2s8ByqQKNbfEk1KRsVAeg0DAD\u002BrtvDvfuiDfFVxaXeTqzzP05m7tzRabnnlPJL9GjF/l4OEVXk498webxUp7yepWaV4d5nsKTEuV5GGi\u002BzPiBbCKd6Qh4cxWSG89wKkGiYYuOqJ9d0SCZaBPdIcXtO5M4zkvaW2OE/BYKgZQKTyikVCilMFAyndwe9w91t4uwv4C3XmINSLQY9LWF6IiYbKyvceP2Pb66/CORcIhj42/QtTsNmo4rFULUhyKVwsDz/n7ydLEykKm4uZ6EfqA3KYSoZ2pppcCNO/c5f\u002Bkqk3cfIl9WOXpkjP7unaRSHUgpqXkKISRSSaTnIUCY6YHs2bG3jpweHBzaHY/HzUA4wt2pB0zcucf0zDw1NLqSCd4\u002BfIjhwX2kUgkMw4eSEhCYpk6lZHPpyvfogFculfLPluYny\u002BW1taZ48vXOngzhSAvtyRS7BwY4lBvhYG6EPQP9tLa2ohtGo2eglEATGs7LKg//nN78KwHI7Bs5c\u002BqjTy8cP/EehmGAkihAEwKEBqrepwap/kgIDE2jVHrB5W\u002B/a2xKQ5rQ0ISgUrQp2wXKRZtK0WbVLlAqrFCyX7BqF1gt2qyWGqdoY9sFCnapzt8K7M/mzhx9/8MvlapH4P9ICIEQgn8AYk4IKUHogaMAAAAASUVORK5CYII=",
+              "WhenOpened": "2026-04-16T14:00:20.075Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 47,
+              "Title": "FabricationScheduleResult.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\FabricationScheduleResult.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\FabricationScheduleResult.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\FabricationScheduleResult.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\FabricationScheduleResult.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAMQAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-14T01:40:11.917Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 46,
+              "Title": "ScheduleRow.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\ScheduleRow.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\ScheduleRow.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\ScheduleRow.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\ScheduleRow.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAFkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-14T01:39:45.223Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "HmgPanelControl.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\HmgPanelControl.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\UI\\HmgPanelControl.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\HmgPanelControl.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\UI\\HmgPanelControl.vb",
+              "ViewState": "AgIAAI4DAAAAAAAAAIBJwFkAAABIAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-08T19:42:21.456Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "DockableWindowManager.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\DockableWindowManager.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\DockableWindowManager.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\DockableWindowManager.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\DockableWindowManager.vb",
+              "ViewState": "AgIAAA4DAAAAAAAAAIBZwGYCAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-05T16:21:20.137Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "DrawingGenerator.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\DrawingGenerator.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\DrawingGenerator.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\DrawingGenerator.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\DrawingGenerator.vb",
+              "ViewState": "AgIAADkCAAAAAAAAAABRwFcAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-14T01:50:36.595Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 48,
+              "Title": "FabricationScheduleBuilder.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\FabricationScheduleBuilder.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\FabricationScheduleBuilder.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\FabricationScheduleBuilder.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\FabricationScheduleBuilder.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAFgBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-14T01:40:56.651Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 49,
+              "Title": "DrawingGenerationResult.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\DrawingGenerationResult.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\DrawingGenerationResult.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\DrawingGenerationResult.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\DrawingGenerationResult.vb",
+              "ViewState": "AgIAAEEAAAAAAAAAAABBwFIAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-14T01:46:02.322Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 45,
+              "Title": "PerimeterData.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\PerimeterData.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\PerimeterData.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\PerimeterData.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\PerimeterData.vb",
+              "ViewState": "AgIAACQAAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-12T18:34:30.372Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 44,
+              "Title": "PerimeterArcInfo.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\PerimeterArcInfo.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\PerimeterArcInfo.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\PerimeterArcInfo.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\PerimeterArcInfo.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAADMAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-12T18:34:14.08Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "BearingBarLayoutService.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Geometry\\BearingBarLayoutService.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Geometry\\BearingBarLayoutService.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Geometry\\BearingBarLayoutService.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Geometry\\BearingBarLayoutService.vb",
+              "ViewState": "AgIAAIMAAAAAAAAAAIBJwBYBAAA4AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T12:30:26.992Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 43,
+              "Title": "BandBarGenerator.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BandBarGenerator.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\BandBarGenerator.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BandBarGenerator.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\BandBarGenerator.vb",
+              "ViewState": "AgIAACcDAAAAAAAAAIBJwLoDAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-07T23:09:35.646Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 42,
+              "Title": "BandBarGenerationResult.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BandBarGenerationResult.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\BandBarGenerationResult.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BandBarGenerationResult.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\BandBarGenerationResult.vb",
+              "ViewState": "AgIAAJEAAAAAAAAAAABBwJ8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-07T23:08:17.279Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 41,
+              "Title": "GeneratedBandBarFile.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GeneratedBandBarFile.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\GeneratedBandBarFile.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GeneratedBandBarFile.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\GeneratedBandBarFile.vb",
+              "ViewState": "AgIAAC8AAAAAAAAAAABBwDsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-07T23:07:46.865Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 35,
+              "Title": "CrossBarEntry.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\CrossBarEntry.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\CrossBarEntry.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\CrossBarEntry.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\CrossBarEntry.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAEEAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-06T14:33:53.321Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 39,
+              "Title": "NotchProfileData.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\NotchProfileData.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\NotchProfileData.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\NotchProfileData.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\NotchProfileData.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAFUAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-06T22:12:56.396Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 40,
+              "Title": "NotchProfileEditorService.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\NotchProfileEditorService.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\NotchProfileEditorService.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\NotchProfileEditorService.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\NotchProfileEditorService.vb",
+              "ViewState": "AgIAAOEAAAAAAAAAAABBwMkBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-06T22:14:06.75Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 36,
+              "Title": "GeneratedCrossBarFile.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GeneratedCrossBarFile.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\GeneratedCrossBarFile.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GeneratedCrossBarFile.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\GeneratedCrossBarFile.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAC0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-06T14:34:05.291Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 37,
+              "Title": "CrossBarGenerationResult.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\CrossBarGenerationResult.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\CrossBarGenerationResult.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\CrossBarGenerationResult.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\CrossBarGenerationResult.vb",
+              "ViewState": "AgIAAIEAAAAAAAAAAABBwI8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-06T14:34:30.834Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 38,
+              "Title": "CrossBarPartGenerator.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\CrossBarPartGenerator.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\CrossBarPartGenerator.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\CrossBarPartGenerator.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\CrossBarPartGenerator.vb",
+              "ViewState": "AgIAAMQAAAAAAAAAAIBJwKUCAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-06T14:35:45.244Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 30,
+              "Title": "BoundarySourceService.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BoundarySourceService.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\BoundarySourceService.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BoundarySourceService.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\BoundarySourceService.vb",
+              "ViewState": "AgIAACEAAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-04T04:48:10.367Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 34,
+              "Title": "GratingCommandManager.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Commands\\GratingCommandManager.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Commands\\GratingCommandManager.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Commands\\GratingCommandManager.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Commands\\GratingCommandManager.vb",
+              "ViewState": "AgIAAA8AAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-05T16:21:39.662Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "BearingBarGenerationResult.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BearingBarGenerationResult.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\BearingBarGenerationResult.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BearingBarGenerationResult.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\BearingBarGenerationResult.vb",
+              "ViewState": "AgIAAFwAAAAAAAAAAABBwF0AAAA5AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T12:40:52.815Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 31,
+              "Title": "CrossBarProfileLibrary.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\CrossBarProfileLibrary.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\CrossBarProfileLibrary.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\CrossBarProfileLibrary.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\CrossBarProfileLibrary.vb",
+              "ViewState": "AgIAAB0AAAAAAAAAAABBwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-04T04:48:10.941Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 33,
+              "Title": "NoBoundarySketchForm.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\NoBoundarySketchForm.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\UI\\NoBoundarySketchForm.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\NoBoundarySketchForm.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\UI\\NoBoundarySketchForm.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAKsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-04T04:56:08.101Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 32,
+              "Title": "DwgImportService.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\DwgImportService.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\DwgImportService.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\DwgImportService.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\DwgImportService.vb",
+              "ViewState": "AgIAADIAAAAAAAAAAABRwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-04T04:50:18.207Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 24,
+              "Title": "CrossBarNotchSpec.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\CrossBarNotchSpec.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\CrossBarNotchSpec.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\CrossBarNotchSpec.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\CrossBarNotchSpec.vb",
+              "ViewState": "AgIAACMBAAAAAAAAAIBJwD0BAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T02:47:09.379Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 26,
+              "Title": "BoundarySourceInfo.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BoundarySourceInfo.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\BoundarySourceInfo.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BoundarySourceInfo.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\BoundarySourceInfo.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAF4AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T08:44:19.873Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 27,
+              "Title": "GratingProject.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GratingProject.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\GratingProject.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GratingProject.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\GratingProject.vb",
+              "ViewState": "AgIAADEAAAAAAAAAAABBwIEAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T08:48:03.554Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 29,
+              "Title": "PerimeterExtractor.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Geometry\\PerimeterExtractor.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Geometry\\PerimeterExtractor.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Geometry\\PerimeterExtractor.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Geometry\\PerimeterExtractor.vb",
+              "ViewState": "AgIAADoAAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T10:49:56.909Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 28,
+              "Title": "BoundarySourceDialog.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\BoundarySourceDialog.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\UI\\BoundarySourceDialog.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\BoundarySourceDialog.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\UI\\BoundarySourceDialog.vb",
+              "ViewState": "AgIAABsAAAAAAAAAAABBwM8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T09:34:54.705Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 25,
+              "Title": "BearingBarNotchService.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BearingBarNotchService.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\BearingBarNotchService.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BearingBarNotchService.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\BearingBarNotchService.vb",
+              "ViewState": "AgIAAAgAAAAAAAAAAIBJwLcAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T02:47:39.56Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 23,
+              "Title": "GratingInputForm.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\GratingInputForm.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\UI\\GratingInputForm.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\UI\\GratingInputForm.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\UI\\GratingInputForm.vb",
+              "ViewState": "AgIAACUAAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T01:43:27.522Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
+              "Title": "copilot-instructions.md",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\.github\\copilot-instructions.md",
+              "RelativeDocumentMoniker": ".github\\copilot-instructions.md",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\.github\\copilot-instructions.md",
+              "RelativeToolTip": ".github\\copilot-instructions.md",
+              "ViewState": "AgIAABIAAAAAAAAAAIBJwBQAAACkAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-04-01T16:59:37.707Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 22,
+              "Title": "GratingParameters.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GratingParameters.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\GratingParameters.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GratingParameters.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\GratingParameters.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-03T01:13:51.368Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 20,
+              "Title": "AssemblyGenerationResult.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\AssemblyGenerationResult.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\AssemblyGenerationResult.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\AssemblyGenerationResult.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\AssemblyGenerationResult.vb",
+              "ViewState": "AgIAAEUAAAAAAAAAAIBJwGAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T17:06:08.698Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 21,
+              "Title": "GratingAssemblyGenerator.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\GratingAssemblyGenerator.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\GratingAssemblyGenerator.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\GratingAssemblyGenerator.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\GratingAssemblyGenerator.vb",
+              "ViewState": "AgIAAJIBAAAAAAAAAIBJwP0BAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T17:06:50.63Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 18,
+              "Title": "StandardAddInServer.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\StandardAddInServer.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\StandardAddInServer.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\StandardAddInServer.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\StandardAddInServer.vb",
+              "ViewState": "AgIAADkAAAAAAAAAAIBJwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T15:46:12.528Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "HandMadeGratingAddinVB.Inventor.addin",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.Inventor.addin",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\HandMadeGratingAddinVB.Inventor.addin",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.Inventor.addin",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\HandMadeGratingAddinVB.Inventor.addin",
+              "ViewState": "AgIAAAMAAAAAAAAAAABBwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000072|",
+              "WhenOpened": "2026-04-01T15:35:00.277Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "OutputPathService.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\OutputPathService.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\OutputPathService.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\OutputPathService.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\OutputPathService.vb",
+              "ViewState": "AgIAABQAAAAAAAAAAIBQwGMAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T12:41:44.677Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "GeneratedBearingBarFile.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GeneratedBearingBarFile.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\GeneratedBearingBarFile.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\GeneratedBearingBarFile.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\GeneratedBearingBarFile.vb",
+              "ViewState": "AgIAABoAAAAAAAAAAIBQwCkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T12:39:18.448Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "GratingCommand.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Commands\\GratingCommand.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Commands\\GratingCommand.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Commands\\GratingCommand.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Commands\\GratingCommand.vb",
+              "ViewState": "AgIAAOcBAAAAAAAAAABBwGAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T08:53:01.714Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 16,
+              "Title": "BearingBarPartGenerator.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BearingBarPartGenerator.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\BearingBarPartGenerator.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\BearingBarPartGenerator.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\BearingBarPartGenerator.vb",
+              "ViewState": "AgIAAIoBAAAAAAAAAMBUwAsCAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T12:45:01.988Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "InputValidationService.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\InputValidationService.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Services\\InputValidationService.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Services\\InputValidationService.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Services\\InputValidationService.vb",
+              "ViewState": "AgIAABkAAAAAAAAAAIBJwHIAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-03-31T19:41:25.101Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "TrimmedBearingBar.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\TrimmedBearingBar.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\TrimmedBearingBar.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\TrimmedBearingBar.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\TrimmedBearingBar.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAC8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T10:05:06.693Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "BearingBarLayoutResult.vb",
+              "DocumentMoniker": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BearingBarLayoutResult.vb",
+              "RelativeDocumentMoniker": "HandMadeGratingAddinVB\\Models\\BearingBarLayoutResult.vb",
+              "ToolTip": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\Models\\BearingBarLayoutResult.vb",
+              "RelativeToolTip": "HandMadeGratingAddinVB\\Models\\BearingBarLayoutResult.vb",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAGUAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003361|",
+              "WhenOpened": "2026-04-01T10:09:25.974Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

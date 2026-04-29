@@ -1,0 +1,313 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' BearingBarLayoutService: Core bearing bar layout engine.
+' Generates trimmed bearing bar centerlines by scanning across
+' the perimeter polygon at on-center spacing intervals.
+'
+' Supports: rectangles, skewed rectangles, simple cutouts.
+' Uses scan-line / polygon-edge intersection clipping.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+
+''' <summary>
+''' Generates bearing bar layout from a validated perimeter and parameters.
+''' Pure geometry — no Inventor API dependency, no UI.
+''' </summary>
+Public Class BearingBarLayoutService
+
+    Private Const Tolerance As Double = 0.0001 ' inches
+
+    ''' <summary>
+    ''' Generates the bearing bar layout.
+    ''' </summary>
+    Public Function Generate(perimeter As PerimeterData,
+                             params As GratingParameters) As BearingBarLayoutResult
+        Try
+            Dim vertices As List(Of Double()) = perimeter.OuterLoopVertices
+            If vertices Is Nothing OrElse vertices.Count < 3 Then
+                Return BearingBarLayoutResult.Failed(
+                    "Perimeter must have at least 3 vertices (found " &
+                    If(vertices Is Nothing, "0", vertices.Count.ToString()) & ").")
+            End If
+
+            Trace.TraceInformation(": HMG Layout: Starting layout — " &
+                vertices.Count & " vertices, direction=" &
+                params.SpanDirection.ToString() &
+                ", spacing=" & params.OnCenterSpacing)
+
+            ' Ensure polygon is closed (duplicate first vertex at end if needed)
+            Dim poly As List(Of Double()) = EnsureClosed(vertices)
+
+            ' Compute bounding box
+            Dim boundsMin As Double() = Nothing
+            Dim boundsMax As Double() = Nothing
+            ComputeBounds(poly, boundsMin, boundsMax)
+
+            Trace.TraceInformation(": HMG Layout: Bounds min=(" &
+                boundsMin(0).ToString("F4") & ", " & boundsMin(1).ToString("F4") &
+                ") max=(" &
+                boundsMax(0).ToString("F4") & ", " & boundsMax(1).ToString("F4") & ")")
+
+            ' Determine axes
+            ' lateralAxis: the axis we step across (perpendicular to span)
+            ' spanAxis: the axis bars run along
+            Dim lateralIdx As Integer ' 0=X, 1=Y
+            If params.SpanDirection = SpanDirectionType.AlongX Then
+                lateralIdx = 1 ' step in Y, bars run in X
+            Else
+                lateralIdx = 0 ' step in X, bars run in Y
+            End If
+            Dim spanIdx As Integer = 1 - lateralIdx
+
+            Dim latMin As Double = boundsMin(lateralIdx)
+            Dim latMax As Double = boundsMax(lateralIdx)
+            Dim latSpan As Double = latMax - latMin
+
+            If latSpan < Tolerance Then
+                Return BearingBarLayoutResult.Failed(
+                    "Perimeter has zero extent in the lateral direction.")
+            End If
+
+            ' Generate scan positions centered within the perimeter bounds
+            Dim positions As List(Of Double) = GenerateScanPositions(
+                latMin, latMax, params.OnCenterSpacing)
+
+            ' When banding is enabled, the outermost band bars that run
+            ' parallel to the bearing bars replace the first and last
+            ' bearing bars. Remove those edge scan positions so there is
+            ' no overlap between bearing bars and band bars.
+            If params.Banding = BandingOptionType.Banded AndAlso
+               positions.Count >= 3 Then
+                Trace.TraceInformation(
+                    ": HMG Layout: Banded — removing first (" &
+                    positions(0).ToString("F4") & ") and last (" &
+                    positions(positions.Count - 1).ToString("F4") &
+                    ") bearing bar positions (replaced by band bars).")
+                positions.RemoveAt(positions.Count - 1)
+                positions.RemoveAt(0)
+            End If
+
+            Trace.TraceInformation(": HMG Layout: " & positions.Count &
+                " scan positions from " &
+                If(positions.Count > 0, positions(0).ToString("F4"), "?") &
+                " to " &
+                If(positions.Count > 0, positions(positions.Count - 1).ToString("F4"), "?"))
+
+            ' Build polygon edge list
+            Dim edges As List(Of Double()()) = BuildEdges(poly)
+
+            ' Scan and clip
+            Dim bars As New List(Of TrimmedBearingBar)
+            Dim warnings As New List(Of String)
+            Dim barIndex As Integer = 0
+
+            For Each latPos As Double In positions
+                Dim intersections As List(Of Double) =
+                    FindScanIntersections(edges, lateralIdx, spanIdx, latPos)
+
+                If intersections.Count < 2 Then
+                    warnings.Add("Scan at lateral=" & latPos.ToString("F4") &
+                                 " found " & intersections.Count &
+                                 " intersection(s) — skipped.")
+                    Continue For
+                End If
+
+                ' Sort along the span axis
+                intersections.Sort()
+
+                ' Pair entry/exit (even index = entry, odd = exit)
+                For p As Integer = 0 To intersections.Count - 2 Step 2
+                    Dim spanStart As Double = intersections(p)
+                    Dim spanEnd As Double = intersections(p + 1)
+                    Dim barLength As Double = spanEnd - spanStart
+
+                    If barLength < Tolerance Then
+                        warnings.Add("Zero-length bar at lateral=" &
+                                     latPos.ToString("F4") & " — skipped.")
+                        Continue For
+                    End If
+
+                    barIndex += 1
+
+                    Dim startPt As Double()
+                    Dim endPt As Double()
+
+                    If params.SpanDirection = SpanDirectionType.AlongX Then
+                        startPt = New Double() {spanStart, latPos}
+                        endPt = New Double() {spanEnd, latPos}
+                    Else
+                        startPt = New Double() {latPos, spanStart}
+                        endPt = New Double() {latPos, spanEnd}
+                    End If
+
+                    Dim bar As New TrimmedBearingBar()
+                    bar.BarIndex = barIndex
+                    bar.Mark = params.NamingPrefix & "-BB-" & barIndex
+                    bar.StartPoint = startPt
+                    bar.EndPoint = endPt
+                    bar.Length = barLength
+                    bar.SpanDirection = params.SpanDirection
+                    bar.LateralPosition = latPos
+
+                    bars.Add(bar)
+                Next
+            Next
+
+            If bars.Count = 0 Then
+                Return BearingBarLayoutResult.Failed(
+                    "No bearing bars could be generated. " &
+                    "The scan lines did not intersect the perimeter. " &
+                    "Check span direction and spacing.")
+            End If
+
+            Trace.TraceInformation(": HMG Layout: Generated " & bars.Count &
+                " bearing bars. First: " & bars(0).ToString())
+
+            Return BearingBarLayoutResult.Succeeded(
+                bars, params.SpanDirection, params.OnCenterSpacing,
+                boundsMin, boundsMax, warnings)
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG Layout: Unexpected error — " & ex.ToString())
+            Return BearingBarLayoutResult.Failed(
+                "Layout engine error: " & ex.Message)
+        End Try
+    End Function
+
+#Region "Scan position generation"
+
+    ''' <summary>
+    ''' Generates evenly-spaced scan positions centered within [latMin, latMax].
+    ''' First bar is placed at half-spacing inset from the boundary, then at
+    ''' on-center intervals until the opposite boundary is reached.
+    ''' </summary>
+    Private Function GenerateScanPositions(latMin As Double,
+                                           latMax As Double,
+                                           spacing As Double) As List(Of Double)
+        Dim positions As New List(Of Double)
+
+        ' Inset the first bar by half the spacing from the minimum edge
+        Dim first As Double = latMin + (spacing / 2.0)
+
+        Dim pos As Double = first
+        Do While pos < latMax - Tolerance
+            positions.Add(pos)
+            pos += spacing
+        Loop
+
+        Return positions
+    End Function
+
+#End Region
+
+#Region "Polygon helpers"
+
+    ''' <summary>
+    ''' Ensures the vertex list forms a closed loop by appending the first
+    ''' vertex if it does not already match the last.
+    ''' </summary>
+    Private Function EnsureClosed(vertices As List(Of Double())) As List(Of Double())
+        Dim result As New List(Of Double())(vertices)
+        Dim first As Double() = result(0)
+        Dim last As Double() = result(result.Count - 1)
+
+        If Math.Abs(first(0) - last(0)) > Tolerance OrElse
+           Math.Abs(first(1) - last(1)) > Tolerance Then
+            result.Add(New Double() {first(0), first(1)})
+        End If
+
+        Return result
+    End Function
+
+    ''' <summary>
+    ''' Builds the list of directed edges {startVertex, endVertex} from the
+    ''' closed polygon vertex list.
+    ''' </summary>
+    Private Function BuildEdges(poly As List(Of Double())) As List(Of Double()())
+        Dim edges As New List(Of Double()())
+        For i As Integer = 0 To poly.Count - 2
+            edges.Add(New Double()() {poly(i), poly(i + 1)})
+        Next
+        Return edges
+    End Function
+
+    ''' <summary>
+    ''' Computes the axis-aligned bounding box of the polygon.
+    ''' </summary>
+    Private Sub ComputeBounds(poly As List(Of Double()),
+                              ByRef boundsMin As Double(),
+                              ByRef boundsMax As Double())
+        Dim xMin As Double = Double.MaxValue
+        Dim yMin As Double = Double.MaxValue
+        Dim xMax As Double = Double.MinValue
+        Dim yMax As Double = Double.MinValue
+
+        For Each v As Double() In poly
+            If v(0) < xMin Then xMin = v(0)
+            If v(1) < yMin Then yMin = v(1)
+            If v(0) > xMax Then xMax = v(0)
+            If v(1) > yMax Then yMax = v(1)
+        Next
+
+        boundsMin = New Double() {xMin, yMin}
+        boundsMax = New Double() {xMax, yMax}
+    End Sub
+
+#End Region
+
+#Region "Scan-line / edge intersection"
+
+    ''' <summary>
+    ''' Finds all intersection coordinates (along the span axis) where the
+    ''' scan line at the given lateral position crosses polygon edges.
+    ''' </summary>
+    ''' <param name="edges">Polygon edge list.</param>
+    ''' <param name="latIdx">Index of the lateral axis (0=X, 1=Y).</param>
+    ''' <param name="spanIdx">Index of the span axis (0=X, 1=Y).</param>
+    ''' <param name="latPos">The scan coordinate on the lateral axis.</param>
+    Private Function FindScanIntersections(edges As List(Of Double()()),
+                                           latIdx As Integer,
+                                           spanIdx As Integer,
+                                           latPos As Double) As List(Of Double)
+        Dim hits As New List(Of Double)
+
+        For Each edge As Double()() In edges
+            Dim a As Double() = edge(0)
+            Dim b As Double() = edge(1)
+
+            Dim aLat As Double = a(latIdx)
+            Dim bLat As Double = b(latIdx)
+
+            ' Skip edges that are entirely on one side of the scan line
+            ' Use half-open interval [min, max) to avoid double-counting vertices
+            Dim minLat As Double = Math.Min(aLat, bLat)
+            Dim maxLat As Double = Math.Max(aLat, bLat)
+
+            If latPos < minLat - Tolerance OrElse latPos >= maxLat - Tolerance Then
+                ' Check exact max boundary — include only if edge goes through
+                If Math.Abs(latPos - maxLat) < Tolerance Then
+                    ' Skip — half-open avoids double-counting at shared vertices
+                End If
+                Continue For
+            End If
+
+            ' Edge is parallel to scan line (degenerate)
+            If Math.Abs(bLat - aLat) < Tolerance Then
+                Continue For
+            End If
+
+            ' Linear interpolation to find span coordinate at latPos
+            Dim t As Double = (latPos - aLat) / (bLat - aLat)
+            Dim spanHit As Double = a(spanIdx) + t * (b(spanIdx) - a(spanIdx))
+
+            hits.Add(spanHit)
+        Next
+
+        Return hits
+    End Function
+
+#End Region
+
+End Class

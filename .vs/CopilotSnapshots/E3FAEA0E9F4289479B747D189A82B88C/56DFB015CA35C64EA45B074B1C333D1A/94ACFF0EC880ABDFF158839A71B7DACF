@@ -1,0 +1,2 @@
+﻿' Services namespace: Business logic, parameter processing, and orchestration.
+' Phase 2+: Add service classes here (e.g., GratingParameterService.vb).

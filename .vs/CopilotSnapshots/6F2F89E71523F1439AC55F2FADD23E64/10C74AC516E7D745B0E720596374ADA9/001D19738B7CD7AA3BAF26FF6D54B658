@@ -1,0 +1,303 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' DockableWindowManager: Creates and manages an Inventor DockableWindow
+' that hosts the HmgPanelControl.  This gives the add-in a docked
+' panel experience identical to iLogic or Design Accelerator —
+' the panel docks to the right side of Inventor (or floats, per
+' user preference) and persists its position across sessions.
+'
+' Lifecycle
+' ---------
+'  Initialize()  — called during add-in Activate; creates or retrieves
+'                   the DockableWindow and hosts the .NET UserControl.
+'  ShowSketchEditPanel(sketchName) — enters sketch edit mode, shows
+'                   the panel, and blocks via DoEvents loop until the
+'                   user clicks Done or Cancel.
+'  HidePanel()   — hides the dockable window.
+'  Cleanup()     — called during add-in Deactivate; disposes the
+'                   UserControl and releases the COM reference.
+'
+' DockableWindow persistence
+' --------------------------
+'  Inventor persists DockableWindow positions and visibility in the
+'  workspace layout.  If the user moves or resizes the panel, those
+'  settings survive Inventor restarts.  The InternalName must be
+'  stable across versions to preserve the layout.
+'
+' Note on AddChild
+' ----------------
+'  AddChild() takes an HWND (IntPtr).  Accessing UserControl.Handle
+'  forces the native window to be created.  With Option Strict Off
+'  the COM interop layer handles IntPtr → Integer marshalling.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports Inventor
+
+''' <summary>
+''' Manages an Inventor DockableWindow that hosts the HMG panel control.
+''' </summary>
+Public Class DockableWindowManager
+
+    ''' <summary>
+    ''' Stable internal name used by Inventor to persist window position.
+    ''' Do not change between versions or the user's layout resets.
+    ''' </summary>
+    Private Const InternalName As String = "HMG_DockPanel"
+
+    ''' <summary>Caption shown in the dockable window title bar.</summary>
+    Private Const Caption As String = "Hand Made Grating"
+
+    Private _app As Application
+    Private _clientId As String
+    Private _dockableWindow As DockableWindow
+    Private _panel As HmgPanelControl
+    Private _initialized As Boolean = False
+
+    ''' <summary>
+    ''' True if the DockableWindow was created/retrieved successfully
+    ''' and the panel control is hosted.  When False, callers should
+    ''' fall back to standalone forms.
+    ''' </summary>
+    Public ReadOnly Property IsAvailable As Boolean
+        Get
+            Return _initialized AndAlso
+                   _dockableWindow IsNot Nothing AndAlso
+                   _panel IsNot Nothing
+        End Get
+    End Property
+
+    ' ==================================================================
+    '  Lifecycle
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Creates or retrieves the DockableWindow and hosts the panel
+    ''' control inside it.  Call once during add-in Activate.
+    '''
+    ''' Safe to call multiple times — subsequent calls are no-ops.
+    ''' If the DockableWindow cannot be created (e.g. DA environment),
+    ''' IsAvailable remains False and all methods gracefully no-op.
+    ''' </summary>
+    Public Sub Initialize(app As Application, clientId As String)
+        If _initialized Then Return
+
+        _app = app
+        _clientId = clientId
+
+        Try
+            ' Create the .NET UserControl that will be hosted
+            _panel = New HmgPanelControl()
+
+            ' Force native window creation so we have a valid HWND
+            Dim hwnd As IntPtr = _panel.Handle
+
+            ' Retrieve existing DockableWindow (survives Inventor sessions)
+            ' or create a new one
+            Dim uiMgr As UserInterfaceManager = _app.UserInterfaceManager
+            Dim isNew As Boolean = False
+
+            Try
+                _dockableWindow = uiMgr.DockableWindows.Item(InternalName)
+                Trace.TraceInformation(
+                    ": HMG DockableWindowManager: Retrieved existing DockableWindow.")
+            Catch
+                _dockableWindow = uiMgr.DockableWindows.Add(
+                    _clientId, InternalName, Caption)
+                isNew = True
+                Trace.TraceInformation(
+                    ": HMG DockableWindowManager: Created new DockableWindow.")
+            End Try
+
+            ' Host the .NET control inside the Inventor DockableWindow
+            _dockableWindow.AddChild(hwnd)
+
+            ' Default docking: left / browser area (like iLogic browser)
+            ' Only set for newly created windows — existing windows keep
+            ' the user's saved layout preference.
+            If isNew Then
+                Try
+                    _dockableWindow.DockingState = DockingStateEnum.kDockLeft
+                Catch
+                End Try
+            End If
+
+            ' Show by default in the browser area
+            _dockableWindow.Visible = True
+
+            _initialized = True
+            Trace.TraceInformation(
+                ": HMG DockableWindowManager: Initialized successfully. " &
+                "HWND=" & hwnd.ToString())
+
+        Catch ex As Exception
+            ' Non-fatal: the add-in works without docking (falls back to forms)
+            Trace.TraceWarning(
+                ": HMG DockableWindowManager: Initialization failed — " &
+                ex.Message & ". Docked panel will not be available.")
+            CleanupPartial()
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Releases resources.  Call during add-in Deactivate.
+    ''' </summary>
+    Public Sub Cleanup()
+        Try
+            If _dockableWindow IsNot Nothing Then
+                _dockableWindow.Visible = False
+            End If
+        Catch
+        End Try
+
+        CleanupPartial()
+        _initialized = False
+        Trace.TraceInformation(": HMG DockableWindowManager: Cleaned up.")
+    End Sub
+
+    Private Sub CleanupPartial()
+        If _panel IsNot Nothing Then
+            _panel.Dispose()
+            _panel = Nothing
+        End If
+        _dockableWindow = Nothing
+    End Sub
+
+    ' ==================================================================
+    '  Sketch edit workflow
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Shows the docked panel in sketch edit mode and blocks until the
+    ''' user clicks "I'm Done" or "Cancel".
+    '''
+    ''' Uses the same DoEvents polling loop as the standalone modeless
+    ''' forms — the user can interact with Inventor while the panel
+    ''' shows instructions.
+    '''
+    ''' Returns True if Done, False if Cancel.
+    ''' </summary>
+    ''' <param name="sketchName">Name of the sketch being edited.</param>
+    Public Function ShowSketchEditPanel(sketchName As String) As Boolean
+        If Not IsAvailable Then Return False
+
+        _panel.EnterSketchEditMode(sketchName)
+        _dockableWindow.Visible = True
+
+        Trace.TraceInformation(
+            ": HMG DockableWindowManager: Showing sketch edit panel for '" &
+            sketchName & "'.")
+
+        ' Block with DoEvents loop — identical pattern to
+        ' NoBoundarySketchForm.ShowNonModal() and
+        ' SketchEditInstructionForm.ShowNonModal().
+        While Not _panel.IsActionTaken
+            System.Windows.Forms.Application.DoEvents()
+            System.Threading.Thread.Sleep(50)
+        End While
+
+        Dim done As Boolean = (_panel.LastAction = HmgPanelControl.UserAction.Done)
+
+        Trace.TraceInformation(
+            ": HMG DockableWindowManager: Sketch edit panel dismissed — " &
+            If(done, "Done", "Cancel"))
+
+        ' Reset panel to idle (shows general info)
+        _panel.ResetToIdle()
+
+        Return done
+    End Function
+
+    ' ==================================================================
+    '  Parameter input workflow
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Shows the docked panel in parameter input mode pre-populated with
+    ''' the given defaults and blocks until the user clicks OK or Cancel.
+    '''
+    ''' Returns the validated <see cref="GratingParameters"/> if OK,
+    ''' or Nothing if cancelled.
+    ''' </summary>
+    Public Function ShowParameterInputPanel(
+            defaults As GratingParameters) As GratingParameters
+        If Not IsAvailable Then Return Nothing
+
+        _panel.EnterParameterInputMode(defaults)
+        _dockableWindow.Visible = True
+
+        Trace.TraceInformation(
+            ": HMG DockableWindowManager: Showing parameter input panel.")
+
+        While Not _panel.IsActionTaken
+            System.Windows.Forms.Application.DoEvents()
+            System.Threading.Thread.Sleep(50)
+        End While
+
+        Dim result As GratingParameters = Nothing
+        If _panel.LastAction = HmgPanelControl.UserAction.Done Then
+            result = _panel.ResultParameters
+        End If
+
+        Trace.TraceInformation(
+            ": HMG DockableWindowManager: Parameter input dismissed — " &
+            If(result IsNot Nothing, "OK", "Cancel"))
+
+        _panel.ResetToIdle()
+        Return result
+    End Function
+
+    ' ==================================================================
+    '  Panel visibility
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Switches the panel to progress mode with a progress bar.
+    ''' Call <see cref="UpdateProgress"/> to advance the bar.
+    ''' Call <see cref="ShowPanel"/> or <see cref="ResetToIdle"/>
+    ''' when generation is complete.
+    ''' </summary>
+    Public Sub ShowProgressPanel(Optional title As String = "Generating Grating...")
+        If Not IsAvailable Then Return
+        _panel.EnterProgressMode(title)
+        _dockableWindow.Visible = True
+        Trace.TraceInformation(
+            ": HMG DockableWindowManager: Showing progress panel.")
+    End Sub
+
+    ''' <summary>
+    ''' Updates the progress bar percentage and step text.
+    ''' </summary>
+    Public Sub UpdateProgress(percent As Integer, stepText As String)
+        If Not IsAvailable Then Return
+        _panel.UpdateProgress(percent, stepText)
+        ' Pump messages so the UI repaints immediately
+        System.Windows.Forms.Application.DoEvents()
+    End Sub
+
+    ''' <summary>
+    ''' Resets the panel to idle after progress completes.
+    ''' </summary>
+    Public Sub ResetToIdle()
+        If Not IsAvailable Then Return
+        _panel.ResetToIdle()
+    End Sub
+
+    ''' <summary>Shows the docked panel (idle content).</summary>
+    Public Sub ShowPanel()
+        If Not IsAvailable Then Return
+        _panel.ResetToIdle()
+        _dockableWindow.Visible = True
+    End Sub
+
+    ''' <summary>Hides the docked panel.</summary>
+    Public Sub HidePanel()
+        If Not IsAvailable Then Return
+        Try
+            _dockableWindow.Visible = False
+        Catch
+        End Try
+    End Sub
+
+End Class

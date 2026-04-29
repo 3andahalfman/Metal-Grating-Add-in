@@ -1,0 +1,145 @@
+﻿using Autodesk.Forge.DesignAutomation.Model;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.Design;
+
+namespace Interaction
+{
+    /// <summary>
+    /// Customizable part of Publisher class.
+    /// </summary>
+    internal partial class Publisher
+    {
+        /// <summary>
+        /// Constants.
+        /// </summary>
+        private static class Constants
+        {
+            // Constants containing the name of the specific Inventor engines. Please note
+            // that potentially not all engines are listed - new egines may have been added meanwhile.
+            // Please use the interaction tools function - list all engines in order to find name of engine that is not listed here
+
+            private const string InventorEngine2022 = "Autodesk.Inventor+2022"; // Inventor 2022
+            private const string InventorEngine2023 = "Autodesk.Inventor+2023"; // Inventor 2023
+            private const string InventorEngine2024 = "Autodesk.Inventor+2024"; // Inventor 2024
+            private const string InventorEngine2025 = "Autodesk.Inventor+2025"; // Inventor 2025
+            private const string InventorEngine2025_Net8 = "Autodesk.Inventor+2025_Net8"; // Inventor 2025 with .Net8 support
+
+            public static readonly string Engine = InventorEngine2024;
+
+            public const string Description = "PUT DESCRIPTION HERE";
+
+            internal static class Bundle
+            {
+                public static readonly string Id = "HandMadeGratingAddin";
+                public const string Label = "alpha";
+
+                public static readonly AppBundle Definition = new AppBundle
+                {
+                    Engine = Engine,
+                    Id = Id,
+                    Description = Description
+                };
+            }
+
+            internal static class Activity
+            {
+                public static readonly string Id = Bundle.Id;
+                public const string Label = Bundle.Label;
+            }
+
+            internal static class Parameters
+            {
+                public const string InventorDoc = nameof(InventorDoc);
+                public const string Params = nameof(Params);
+                public const string OutputIpt = nameof(OutputIpt);
+            }
+        }
+
+
+        /// <summary>
+        /// Get command line for activity.
+        /// </summary>
+        private static List<string> GetActivityCommandLine()
+        {
+            return new List<string> { $"$(engine.path)\\InventorCoreConsole.exe /al \"$(appbundles[{Constants.Activity.Id}].path)\" /i \"$(args[{Constants.Parameters.InventorDoc}].path)\"" };
+        }
+
+        /// <summary>
+        /// Get activity parameters.
+        /// </summary>
+        private static Dictionary<string, Parameter> GetActivityParams()
+        {
+            return new Dictionary<string, Parameter>
+            {
+                {
+                    Constants.Parameters.InventorDoc,
+                    new Parameter
+                    {
+                        Verb = Verb.Get,
+                        Description = "IPT file to process",
+                        LocalName = "box.ipt",
+                    }
+                },
+                {
+                    Constants.Parameters.Params,
+                    new Parameter
+                    {
+                        Verb = Verb.Get,
+                        Description = "Input parameters",
+                        LocalName = "params.json",
+                    }
+                },
+                {
+                    Constants.Parameters.OutputIpt,
+                    new Parameter
+                    {
+                        Verb = Verb.Put,
+                        LocalName = "result.ipt",
+                        Description = "Resulting IPT",
+                        Ondemand = false,
+                        Required = false
+                    }
+                }
+            };
+        }
+
+        /// <summary>
+        /// Get arguments for workitem.
+        /// </summary>
+        private Dictionary<string, IArgument> GetWorkItemArgs(string inventorDocUrl, string paramsUrl, string outputIptUrl)
+        {
+            var parameters = GetActivityParams();
+            return new Dictionary<string, IArgument>
+            {
+                {
+                    Constants.Parameters.InventorDoc,
+                    new XrefTreeArgument
+                    {
+                        LocalName = parameters["InventorDoc"].LocalName,
+                        Verb = Verb.Get,
+                        Url = inventorDocUrl
+                    }
+                },
+                {
+                    Constants.Parameters.Params,
+                    new XrefTreeArgument
+                    {
+                        LocalName = parameters["Params"].LocalName,
+                        Verb = Verb.Get,
+                        Url = paramsUrl
+                    }
+                },
+                {
+                    Constants.Parameters.OutputIpt,
+                    new XrefTreeArgument
+                    {
+                        LocalName = parameters["OutputIpt"].LocalName,
+                        Verb = Verb.Put,
+                        Url = outputIptUrl
+                    }
+                }
+            };
+        }
+    }
+}

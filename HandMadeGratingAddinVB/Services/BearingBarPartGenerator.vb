@@ -1,0 +1,874 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' BearingBarPartGenerator: Creates Inventor .ipt files for each
+' trimmed bearing bar from the layout result.
+'
+' Phase 9: Adds cross-rod notch slots to each bearing bar:
+'   - Base body: rectangle sketch on XY plane, extruded +Z (Phase 6)
+'   - Notches: offset work plane at bar top, cut-extrude per slot
+' Notch dimensions are derived from the selected cross bar type.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Generates individual bearing bar .ipt part files.
+''' </summary>
+Public Class BearingBarPartGenerator
+
+    Private ReadOnly _app As Application
+    Private ReadOnly _pathService As New OutputPathService()
+
+    Public Sub New(app As Application)
+        _app = app
+    End Sub
+
+    ''' <summary>
+    ''' Generates .ipt files for all bars in the layout result.
+    ''' </summary>
+    Public Function Generate(layout As BearingBarLayoutResult,
+                             params As GratingParameters) As BearingBarGenerationResult
+        Try
+            ' Resolve output folder
+            Dim outputFolder As String = _pathService.ResolveOutputFolder(
+                params.OutputFolder, _app)
+
+            If String.IsNullOrEmpty(outputFolder) Then
+                Return BearingBarGenerationResult.Failed(
+                    "Cannot resolve output folder. " &
+                    "Specify a folder or save the active document first.")
+            End If
+
+            ' Ensure output folder exists
+            If Not Directory.Exists(outputFolder) Then
+                Try
+                    Directory.CreateDirectory(outputFolder)
+                Catch ex As Exception
+                    Return BearingBarGenerationResult.Failed(
+                        "Cannot create output folder: " & ex.Message)
+                End Try
+            End If
+
+            Trace.TraceInformation(": HMG PartGen: Generating " &
+                layout.Bars.Count & " bearing bar parts to " & outputFolder)
+
+            Dim files As New List(Of GeneratedBearingBarFile)
+            Dim warnings As New List(Of String)
+
+            ' Phase 9: Prepare notch specification from cross bar settings
+            Dim notchService As New BearingBarNotchService()
+            Dim notchSpec As CrossBarNotchSpec = CrossBarNotchSpec.FromParameters(params)
+
+            Trace.TraceInformation(": HMG PartGen: Notch spec — " & notchSpec.ToString())
+
+            If notchSpec.SlotDepth >= params.BarDepth Then
+                Dim clampedDepth As Double = params.BarDepth * 0.5
+                If notchSpec.SlotDepth > 0 Then
+                    Dim ratio As Double = clampedDepth / notchSpec.SlotDepth
+                    notchSpec.StraightDepth *= ratio
+                    notchSpec.BottomRadius *= ratio
+                End If
+                notchSpec.SlotDepth = clampedDepth
+                warnings.Add("Notch depth clamped to 50% of bar depth (" &
+                    notchSpec.SlotDepth.ToString("F4") & """).")
+                Trace.TraceWarning(": HMG PartGen: Notch depth clamped to " &
+                    notchSpec.SlotDepth.ToString("F4"))
+            End If
+
+            ' Auto-generate notch profile from the (possibly clamped) notch spec
+            Dim notchProfile As NotchProfileData =
+                NotchProfileEditorService.CreateDefaultProfile(
+                    params.BarDepth, notchSpec)
+
+            Trace.TraceInformation(": HMG PartGen: Auto-generated notch profile — " &
+                notchProfile.ToString())
+
+            ' Compute the global span minimum across all bars so that
+            ' arc-trimmed bars (which start mid-grid) get notches aligned
+            ' to the same cross bar grid as the full-length bars.
+            Dim spanIdx As Integer =
+                If(params.SpanDirection = SpanDirectionType.AlongX, 0, 1)
+            Dim globalSpanMin As Double = Double.MaxValue
+            For Each b As TrimmedBearingBar In layout.Bars
+                Dim s As Double = Math.Min(b.StartPoint(spanIdx), b.EndPoint(spanIdx))
+                If s < globalSpanMin Then globalSpanMin = s
+            Next
+
+            Trace.TraceInformation(": HMG PartGen: Global span min = " &
+                globalSpanMin.ToString("F4") & """")
+
+            ' Capture the original active document so we can restore it after
+            ' each generated part is closed.  Closing an invisible part doc
+            ' while Inventor still holds sketch-tool state referencing its
+            ' entities corrupts the active document's command mode (e.g. the
+            ' Line tool starts behaving like the Arc tool).  Restoring the
+            ' original doc after every close resets that state cleanly.
+            Dim originalDoc As Document = Nothing
+            Try
+                originalDoc = _app.ActiveDocument
+            Catch
+            End Try
+
+            For Each bar As TrimmedBearingBar In layout.Bars
+                Dim genFile As GeneratedBearingBarFile = GenerateSingleBar(
+                    bar, params, outputFolder, notchService, notchSpec,
+                    notchProfile, originalDoc, globalSpanMin, spanIdx)
+                files.Add(genFile)
+
+                If genFile.Saved Then
+                    Trace.TraceInformation(": HMG PartGen:   OK — " &
+                        genFile.ToString() & " (" & genFile.NotchCount & " notches)")
+                Else
+                    Trace.TraceWarning(": HMG PartGen:   FAIL — " &
+                        genFile.ToString())
+                    warnings.Add("Bar " & bar.Mark & ": " & genFile.ErrorMessage)
+                End If
+            Next
+
+            ' Final restore after the loop in case the last bar's close
+            ' left Inventor in a bad state.
+            If originalDoc IsNot Nothing Then
+                Try
+                    originalDoc.Activate()
+                    Trace.TraceInformation(": HMG PartGen: Active document restored.")
+                Catch
+                End Try
+            End If
+
+            Dim savedCount As Integer = 0
+            For Each f In files
+                If f.Saved Then savedCount += 1
+            Next
+
+            If savedCount = 0 Then
+                ' Collect the first few error messages so the user can diagnose
+                ' without needing a trace listener.
+                Dim errorLines As New System.Text.StringBuilder()
+                Dim shown As Integer = 0
+                For Each f In files
+                    If Not f.Saved AndAlso Not String.IsNullOrEmpty(f.ErrorMessage) Then
+                        errorLines.AppendLine("  • " & f.FileName & ": " & f.ErrorMessage)
+                        shown += 1
+                        If shown >= 3 Then Exit For
+                    End If
+                Next
+                Dim detail As String = If(errorLines.Length > 0,
+                    vbCrLf & vbCrLf & "First error(s):" & vbCrLf & errorLines.ToString().TrimEnd(),
+                    " Check trace output for details.")
+                Return BearingBarGenerationResult.Failed(
+                    "All " & files.Count & " bar(s) failed to generate." & detail)
+            End If
+
+            Trace.TraceInformation(": HMG PartGen: Complete — " &
+                savedCount & "/" & files.Count & " files saved.")
+
+            Return BearingBarGenerationResult.Succeeded(files, outputFolder, warnings)
+
+        Catch ex As Exception
+            Trace.TraceError(": HMG PartGen: Unexpected error — " & ex.ToString())
+            Return BearingBarGenerationResult.Failed(
+                "Part generation error: " & ex.Message)
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Creates a single bearing bar .ipt file.
+    ''' Step 1 — base body: rectangle on XY plane, extruded +Z (Phase 6).
+    ''' Step 2 — notch slots: offset work plane at bar top, individual
+    '''          cut-extrude features per notch position.
+    ''' </summary>
+    Private Function GenerateSingleBar(bar As TrimmedBearingBar,
+                                        params As GratingParameters,
+                                        outputFolder As String,
+                                        notchService As BearingBarNotchService,
+                                        notchSpec As CrossBarNotchSpec,
+                                        notchProfile As NotchProfileData,
+                                        originalDoc As Document,
+                                        globalSpanMin As Double,
+                                        spanIdx As Integer) As GeneratedBearingBarFile
+        Dim result As New GeneratedBearingBarFile()
+        result.SourceBar = bar
+
+        Dim partDoc As PartDocument = Nothing
+
+        Try
+            ' Resolve file path
+            Dim fullPath As String = _pathService.GenerateFilePath(
+                outputFolder, params.NamingPrefix, bar)
+            result.FilePath = fullPath
+            result.FileName = IO.Path.GetFileName(fullPath)
+
+            ' Convert inches to cm (Inventor internal units)
+            Dim lengthCm As Double = bar.Length * 2.54
+            Dim widthCm As Double = params.BarWidth * 2.54
+            Dim depthCm As Double = params.BarDepth * 2.54
+
+            ' Phase 9: Compute notch positions for this bar.
+            ' Derive a grid-aligned local first-offset so that bars trimmed
+            ' mid-grid (e.g. by arc cutouts) get notches that align with the
+            ' global cross bar positions.  Global grid starts at:
+            '   globalSpanMin + FirstCrossBarOffset,  step CrossBarOnCenter.
+            ' Bar world start along the span axis:
+            Dim barWorldStart As Double =
+                Math.Min(bar.StartPoint(spanIdx), bar.EndPoint(spanIdx))
+            Dim localFirstOffset As Double
+            If params.CrossBarOnCenter > 0 Then
+                Dim firstGridAbs As Double = globalSpanMin + params.FirstCrossBarOffset
+                Dim rawLocal As Double = firstGridAbs - barWorldStart
+                ' Normalise into [0, OC) — first grid hit inside this bar
+                Dim oc As Double = params.CrossBarOnCenter
+                localFirstOffset = ((rawLocal Mod oc) + oc) Mod oc
+            Else
+                localFirstOffset = params.FirstCrossBarOffset
+            End If
+
+            Dim positions As List(Of Double) = notchService.ComputeNotchPositions(
+                bar.Length, localFirstOffset,
+                params.CrossBarOnCenter, notchSpec.SlotWidth)
+            result.NotchCount = positions.Count
+
+            Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                ": " & positions.Count & " notch position(s) computed")
+
+            ' --- Diagnostic: log all dimension values before any COM call ---
+            Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                " dims: lengthCm=" & lengthCm.ToString("F4") &
+                " widthCm=" & widthCm.ToString("F4") &
+                " depthCm=" & depthCm.ToString("F4"))
+
+            ' Step A: Resolve template
+            Dim templatePath As String
+            Try
+                templatePath = GetPartTemplatePath()
+                Trace.TraceInformation(": HMG PartGen:   Template: " &
+                    If(String.IsNullOrEmpty(templatePath), "(empty)", templatePath))
+            Catch ex As Exception
+                Throw New Exception("[Step A — GetPartTemplatePath] " & ex.Message, ex)
+            End Try
+
+            ' Step B: Create part document
+            Try
+                partDoc = CType(
+                    _app.Documents.Add(DocumentTypeEnum.kPartDocumentObject,
+                                        templatePath,
+                                        False),
+                    PartDocument)
+                Trace.TraceInformation(": HMG PartGen:   Document created OK")
+            Catch ex As Exception
+                Throw New Exception(
+                    "[Step B — Documents.Add, template='" & templatePath & "'] " &
+                    ex.Message, ex)
+            End Try
+
+            Dim compDef As PartComponentDefinition = partDoc.ComponentDefinition
+
+            ' Step C: Add sketch on XY plane
+            Dim sketch As PlanarSketch
+            Try
+                sketch = compDef.Sketches.Add(compDef.WorkPlanes.Item(3))
+                Trace.TraceInformation(": HMG PartGen:   Sketch created OK")
+            Catch ex As Exception
+                Throw New Exception("[Step C — Sketches.Add/WorkPlanes.Item(3)] " & ex.Message, ex)
+            End Try
+
+            Dim tg As TransientGeometry = _app.TransientGeometry
+
+            ' Step D: Draw rectangle
+            Try
+                sketch.SketchLines.AddAsTwoPointRectangle(
+                    tg.CreatePoint2d(0, 0),
+                    tg.CreatePoint2d(lengthCm, widthCm))
+                Trace.TraceInformation(": HMG PartGen:   Rectangle drawn OK")
+            Catch ex As Exception
+                Throw New Exception(
+                    "[Step D — AddAsTwoPointRectangle, lengthCm=" &
+                    lengthCm.ToString("F4") & ", widthCm=" &
+                    widthCm.ToString("F4") & "] " & ex.Message, ex)
+            End Try
+
+            ' Step E: Add profile
+            Dim profile As Profile
+            Try
+                profile = sketch.Profiles.AddForSolid()
+                Trace.TraceInformation(": HMG PartGen:   Profile created OK")
+            Catch ex As Exception
+                Throw New Exception("[Step E — Profiles.AddForSolid] " & ex.Message, ex)
+            End Try
+
+            ' Step F: Create extrude definition
+            Dim extrudeDef As ExtrudeDefinition
+            Try
+                extrudeDef = compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                    profile, PartFeatureOperationEnum.kNewBodyOperation)
+                extrudeDef.SetDistanceExtent(
+                    depthCm,
+                    PartFeatureExtentDirectionEnum.kPositiveExtentDirection)
+                Trace.TraceInformation(": HMG PartGen:   ExtrudeDef created OK")
+            Catch ex As Exception
+                Throw New Exception(
+                    "[Step F — CreateExtrudeDefinition/SetDistanceExtent, depthCm=" &
+                    depthCm.ToString("F4") & "] " & ex.Message, ex)
+            End Try
+
+            ' Step G: Execute extrude
+            Try
+                compDef.Features.ExtrudeFeatures.Add(extrudeDef)
+                Trace.TraceInformation(": HMG PartGen:   Extrude executed OK")
+            Catch ex As Exception
+                Throw New Exception("[Step G — ExtrudeFeatures.Add] " & ex.Message, ex)
+            End Try
+
+            ' --- Step 2: NOTCH_PROFILE sketch + cut ---
+            ' Replays the auto-generated notch profile at every cross bar
+            ' position in ONE named "NOTCH_PROFILE" sketch visible in the
+            ' browser.  The profile shape is derived from the cross bar type.
+            If positions.Count > 0 AndAlso
+               notchProfile IsNot Nothing AndAlso notchProfile.IsValid Then
+                Try
+                    CreateNotchSketchAndCutFromProfile(
+                        compDef, tg, positions, notchProfile, widthCm, depthCm)
+                    Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                        ": NOTCH_PROFILE sketch created with " &
+                        positions.Count & " notch(es)")
+                Catch ex As Exception
+                    Throw New Exception(
+                        "[Step 2 — NotchSketchAndCutFromProfile] " & ex.Message, ex)
+                End Try
+            ElseIf positions.Count > 0 Then
+                Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                    ": No notch profile drawn — generating plain bar")
+            Else
+                Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                    ": No notch positions — plain bar")
+            End If
+
+            ' --- Step 3: SERRATION scallops on bar top ---
+            If notchSpec.IsSerrated Then
+                Try
+                    CreateSerrationCuts(
+                        compDef, tg, lengthCm, widthCm, depthCm,
+                        positions, notchSpec)
+                    Trace.TraceInformation(": HMG PartGen:   " & bar.Mark &
+                        ": SERRATION_PROFILE sketch created")
+                Catch ex As Exception
+                    Throw New Exception(
+                        "[Step 3 — SerrationCuts] " & ex.Message, ex)
+                End Try
+            End If
+
+            ' Set iProperties for downstream identification
+            SetCustomProperty(partDoc, "HMG_Mark", bar.Mark)
+            SetCustomProperty(partDoc, "HMG_BarIndex", bar.BarIndex.ToString())
+            SetCustomProperty(partDoc, "HMG_Length_in", bar.Length.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_Depth_in", params.BarDepth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_Width_in", params.BarWidth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_NotchCount", positions.Count.ToString())
+            SetCustomProperty(partDoc, "HMG_NotchWidth_in", notchSpec.SlotWidth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_NotchDepth_in", notchSpec.SlotDepth.ToString("F4"))
+            SetCustomProperty(partDoc, "HMG_CrossBarType",
+                CrossBarTypeHelper.GetDisplayName(params.CrossBar))
+
+            ' Save
+            partDoc.SaveAs(fullPath, False)
+
+            result.Saved = True
+
+        Catch ex As Exception
+            result.Saved = False
+            result.ErrorMessage = ex.Message
+        Finally
+            ' Close the generated part document.
+            If partDoc IsNot Nothing Then
+                Try
+                    partDoc.Close(True) ' skip save — already saved above
+                Catch
+                End Try
+            End If
+
+            ' Restore the original active document immediately after close.
+            ' This clears any residual COM sketch-tool state that Inventor
+            ' holds against entities in the now-closed document.
+            ' Without this, the Line tool in the active doc can lose its
+            ' identity and behave like an Arc tool.
+            If originalDoc IsNot Nothing Then
+                Try
+                    originalDoc.Activate()
+                Catch
+                End Try
+            End If
+        End Try
+
+        Return result
+    End Function
+
+    ' ==================================================================
+    '  NOTCH_PROFILE sketch — user-drawn profile replay per bar
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Creates ONE named "NOTCH_PROFILE" sketch on a plane parallel to
+    ''' the bar's side face (offset XZ plane), replays the user-drawn
+    ''' notch profile at every cross bar position, then creates a single
+    ''' symmetric through-all cut feature.
+    '''
+    ''' The sketch is left visible in the Inventor browser so the user can
+    ''' double-click it to inspect any notch shape.
+    '''
+    ''' Sketch coordinate system:
+    '''   Sketch X = World X  (along bar length)
+    '''   Sketch Y  — determined at runtime via ModelToSketchSpace.
+    '''
+    ''' Profile Y coordinates are bar-top-relative:
+    '''   Y = 0  → bar top,  Y > 0 → into bar body.
+    ''' At runtime we probe two world-space points with ModelToSketchSpace
+    ''' to find (a) where bar-top is in sketch Y and (b) which direction
+    ''' "into bar" goes in sketch Y.  Profile Y values are then mapped:
+    '''   sketchY = yAnchor + profileY * yDir
+    ''' </summary>
+    Friend Shared Sub CreateNotchSketchAndCutFromProfile(
+            compDef As PartComponentDefinition,
+            tg As TransientGeometry,
+            positionsIn As List(Of Double),
+            notchProfile As NotchProfileData,
+            widthCm As Double,
+            depthCm As Double)
+
+        ' Offset the sketch plane just outside the bar's near face (-Y side)
+        ' to prevent auto-projection of bar edges into the new sketch.
+        ' Using -0.01 keeps the plane close to the origin XZ plane where
+        ' the sketch coordinate convention is well-known.
+        Dim cutPlane As WorkPlane
+        Try
+            cutPlane = compDef.WorkPlanes.AddByPlaneAndOffset(
+                compDef.WorkPlanes.Item(2), -0.01)
+            cutPlane.Visible = False
+        Catch ex As Exception
+            Throw New Exception(
+                "[NotchFromProfile — AddByPlaneAndOffset] " & ex.Message, ex)
+        End Try
+
+        ' One named sketch for ALL notch positions — visible in the browser
+        Dim notchSketch As PlanarSketch
+        Try
+            notchSketch = compDef.Sketches.Add(cutPlane)
+            notchSketch.Name = "NOTCH_PROFILE"
+        Catch ex As Exception
+            Throw New Exception(
+                "[NotchFromProfile — Sketches.Add/Name] " & ex.Message, ex)
+        End Try
+
+        ' --- Use ModelToSketchSpace to map every point from world → sketch ---
+        ' Profile Y coordinates: Y=0 → bar top, Y>0 → into bar.
+        ' World mapping:  World Z = depthCm - profileY
+        '   (profileY=0 → Z=depthCm=bar top, profileY=slotDepth → Z=depthCm-slotDepth)
+        ' World X = profileX + dx  (shifted to notch position)
+        ' World Y = -0.01  (on the sketch plane)
+        Dim planeY As Double = -0.01
+        Dim profileCenterX As Double = notchProfile.SourceCenterX
+
+        Trace.TraceInformation(
+            ": HMG PartGen: CreateNotchSketchAndCutFromProfile — " &
+            notchProfile.Entities.Count & " entities, " &
+            positionsIn.Count & " positions, widthCm=" &
+            widthCm.ToString("F4") & " depthCm=" &
+            depthCm.ToString("F4") & " profileCenterX=" &
+            profileCenterX.ToString("F4"))
+
+        ' --- Replay the profile at each notch position ---
+        For Each posIn As Double In positionsIn
+            Dim posCm As Double = posIn * 2.54
+            Dim dx As Double = posCm - profileCenterX
+
+            Dim ptMap As New Dictionary(Of String, Object)
+            Dim entityStartPts As New List(Of SketchPoint)
+            Dim entityEndPts As New List(Of SketchPoint)
+
+            For Each ent As NotchSketchEntity In notchProfile.Entities
+                ' Convert profile coordinates → world coordinates → sketch coordinates
+                ' Profile X → World X (shifted by dx)
+                ' Profile Y → World Z = depthCm - profileY (Y=0 → bar top at Z=depthCm)
+                Dim startWorld As Point = tg.CreatePoint(
+                    ent.StartX + dx, planeY, depthCm - ent.StartY)
+                Dim endWorld As Point = tg.CreatePoint(
+                    ent.EndX + dx, planeY, depthCm - ent.EndY)
+
+                Dim startSk As Point2d = notchSketch.ModelToSketchSpace(startWorld)
+                Dim endSk As Point2d = notchSketch.ModelToSketchSpace(endWorld)
+
+                Dim sx As Double = startSk.X
+                Dim sy As Double = startSk.Y
+                Dim ex2 As Double = endSk.X
+                Dim ey As Double = endSk.Y
+
+                If ent.EntityType = NotchEntityType.Line Then
+                    Dim startPt As Object = GetOrCreatePoint(tg, ptMap, sx, sy)
+                    Dim endPt As Object = GetOrCreatePoint(tg, ptMap, ex2, ey)
+                    Dim line As SketchLine
+                    Try
+                        line = notchSketch.SketchLines.AddByTwoPoints(startPt, endPt)
+                    Catch ex As Exception
+                        Throw New Exception(
+                            "[NotchFromProfile — Line at pos=" &
+                            posCm.ToString("F3") & " sx=" & sx.ToString("F4") &
+                            " sy=" & sy.ToString("F4") &
+                            " ex=" & ex2.ToString("F4") &
+                            " ey=" & ey.ToString("F4") & "] " & ex.Message, ex)
+                    End Try
+                    StoreSketchPoint(ptMap, sx, sy, line.StartSketchPoint)
+                    StoreSketchPoint(ptMap, ex2, ey, line.EndSketchPoint)
+                    entityStartPts.Add(line.StartSketchPoint)
+                    entityEndPts.Add(line.EndSketchPoint)
+
+                ElseIf ent.EntityType = NotchEntityType.ThreePointArc Then
+                    Dim startPt As Object = GetOrCreatePoint(tg, ptMap, sx, sy)
+                    Dim midWorld As Point = tg.CreatePoint(
+                        ent.MidX + dx, planeY, depthCm - ent.MidY)
+                    Dim midSk As Point2d = notchSketch.ModelToSketchSpace(midWorld)
+                    Dim midPt As Object = tg.CreatePoint2d(midSk.X, midSk.Y)
+                    Dim endPt As Object = GetOrCreatePoint(tg, ptMap, ex2, ey)
+                    Dim arc As SketchArc
+                    Try
+                        arc = notchSketch.SketchArcs.AddByThreePoints(
+                            startPt, midPt, endPt)
+                    Catch ex As Exception
+                        Throw New Exception(
+                            "[NotchFromProfile — Arc at pos=" &
+                            posCm.ToString("F3") & "] " & ex.Message, ex)
+                    End Try
+                    StoreSketchPoint(ptMap, sx, sy, arc.StartSketchPoint)
+                    StoreSketchPoint(ptMap, ex2, ey, arc.EndSketchPoint)
+                    entityStartPts.Add(arc.StartSketchPoint)
+                    entityEndPts.Add(arc.EndSketchPoint)
+                End If
+            Next
+
+            ' Apply coincident constraints to close the profile loop
+            If entityStartPts.Count >= 2 Then
+                For ci As Integer = 0 To entityStartPts.Count - 1
+                    Dim nextIdx As Integer = (ci + 1) Mod entityStartPts.Count
+                    If entityEndPts(ci) IsNot entityStartPts(nextIdx) Then
+                        Try
+                            notchSketch.GeometricConstraints.AddCoincident(
+                                entityEndPts(ci), entityStartPts(nextIdx))
+                        Catch
+                        End Try
+                    End If
+                Next
+            End If
+
+            Trace.TraceInformation(
+                ": HMG PartGen: Profile notch drawn at X=" &
+                posCm.ToString("F3") & " cm")
+        Next
+
+        ' One cut from all closed regions (all notch positions at once).
+        ' Uses a fixed distance extent (bar width + margin) in BOTH
+        ' directions.  This avoids SetThroughAllExtent which fails when
+        ' the sketch plane is outside the solid body.
+        Dim cutProfile As Profile
+        Try
+            cutProfile = notchSketch.Profiles.AddForSolid()
+        Catch ex As Exception
+            Throw New Exception(
+                "[NotchFromProfile — AddForSolid] " & ex.Message, ex)
+        End Try
+
+        Try
+            Dim cutDef As ExtrudeDefinition =
+                compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                    cutProfile, PartFeatureOperationEnum.kCutOperation)
+            cutDef.SetDistanceExtent(
+                widthCm + 1.0,
+                PartFeatureExtentDirectionEnum.kSymmetricExtentDirection)
+            compDef.Features.ExtrudeFeatures.Add(cutDef)
+        Catch ex As Exception
+            Throw New Exception(
+                "[NotchFromProfile — Extrude] " & ex.Message, ex)
+        End Try
+    End Sub
+
+    ' ==================================================================
+    '  SERRATION scallop cuts on bar top edge
+    ' ==================================================================
+
+    ''' <summary>
+    ''' Creates a "SERRATION_PROFILE" sketch on the bar's side face
+    ''' with repeating scallop arcs along the top edge, then cuts
+    ''' through the bar width.  Scallops are placed in the gaps
+    ''' between notch slots (with a margin clearance from each slot).
+    ''' </summary>
+    Friend Shared Sub CreateSerrationCuts(
+            compDef As PartComponentDefinition,
+            tg As TransientGeometry,
+            barLengthCm As Double,
+            widthCm As Double,
+            depthCm As Double,
+            notchPositionsIn As List(Of Double),
+            notchSpec As CrossBarNotchSpec)
+
+        Dim chordCm As Double = notchSpec.SerrationScallopChord * 2.54
+        Dim flatCm As Double = notchSpec.SerrationFlatWidth * 2.54
+        Dim radiusCm As Double = notchSpec.SerrationArcRadius * 2.54
+        Dim marginCm As Double = notchSpec.SerrationMargin * 2.54
+        Dim halfSlotCm As Double = (notchSpec.SlotWidth * 2.54) / 2.0
+        Dim pitchCm As Double = chordCm + flatCm
+
+        If chordCm <= 0 OrElse radiusCm <= 0 Then Return
+
+        ' Compute sagitta (depth of each scallop below bar top)
+        Dim halfChord As Double = chordCm / 2.0
+        Dim sagittaCm As Double
+        If radiusCm > halfChord Then
+            sagittaCm = radiusCm - Math.Sqrt(radiusCm * radiusCm - halfChord * halfChord)
+        Else
+            sagittaCm = radiusCm
+        End If
+
+        ' Build exclusion zones around each notch slot (with margin)
+        Dim excludeZones As New List(Of Double())
+        For Each posIn As Double In notchPositionsIn
+            Dim posCm As Double = posIn * 2.54
+            excludeZones.Add(New Double() {
+                posCm - halfSlotCm - marginCm,
+                posCm + halfSlotCm + marginCm})
+        Next
+        excludeZones.Sort(Function(a, b) a(0).CompareTo(b(0)))
+
+        ' Build available segments (bar regions outside exclusion zones)
+        Dim segments As New List(Of Double())
+        Dim segStart As Double = 0.0
+        For Each zone In excludeZones
+            If zone(0) > segStart + 0.001 Then
+                segments.Add(New Double() {segStart, zone(0)})
+            End If
+            segStart = Math.Max(segStart, zone(1))
+        Next
+        If segStart < barLengthCm - 0.001 Then
+            segments.Add(New Double() {segStart, barLengthCm})
+        End If
+
+        ' Collect scallop start-X positions (cm) across all segments
+        Dim scallops As New List(Of Double)
+        For Each seg In segments
+            Dim segLen As Double = seg(1) - seg(0)
+            If segLen < chordCm Then Continue For
+
+            ' How many scallops fit? N*chord + (N-1)*flat <= segLen
+            Dim n As Integer = CInt(Math.Floor((segLen + flatCm) / pitchCm))
+            If n < 1 Then
+                If segLen >= chordCm Then n = 1 Else Continue For
+            End If
+
+            Dim patternLen As Double = n * chordCm + (n - 1) * flatCm
+            Dim offset As Double = seg(0) + (segLen - patternLen) / 2.0
+
+            For i As Integer = 0 To n - 1
+                scallops.Add(offset + i * pitchCm)
+            Next
+        Next
+
+        If scallops.Count = 0 Then Return
+
+        Trace.TraceInformation(
+            ": HMG PartGen: CreateSerrationCuts — " &
+            scallops.Count & " scallops, chordCm=" &
+            chordCm.ToString("F3") & " sagittaCm=" &
+            sagittaCm.ToString("F3"))
+
+        ' Create sketch on offset XZ plane (same convention as notch profile)
+        Dim cutPlane As WorkPlane
+        Try
+            cutPlane = compDef.WorkPlanes.AddByPlaneAndOffset(
+                compDef.WorkPlanes.Item(2), -0.01)
+            cutPlane.Visible = False
+        Catch ex As Exception
+            Throw New Exception(
+                "[Serration — AddByPlaneAndOffset] " & ex.Message, ex)
+        End Try
+
+        Dim serSketch As PlanarSketch
+        Try
+            serSketch = compDef.Sketches.Add(cutPlane)
+            serSketch.Name = "SERRATION_PROFILE"
+        Catch ex As Exception
+            Throw New Exception(
+                "[Serration — Sketches.Add/Name] " & ex.Message, ex)
+        End Try
+
+        Dim planeY As Double = -0.01
+        Dim barTopZ As Double = depthCm
+
+        ' Draw each scallop as a closed loop: 3-point arc + closing line
+        For Each sx As Double In scallops
+            Dim startWorld As Point = tg.CreatePoint(sx, planeY, barTopZ)
+            Dim midWorld As Point = tg.CreatePoint(
+                sx + halfChord, planeY, barTopZ - sagittaCm)
+            Dim endWorld As Point = tg.CreatePoint(
+                sx + chordCm, planeY, barTopZ)
+
+            Dim startSk As Point2d = serSketch.ModelToSketchSpace(startWorld)
+            Dim midSk As Point2d = serSketch.ModelToSketchSpace(midWorld)
+            Dim endSk As Point2d = serSketch.ModelToSketchSpace(endWorld)
+
+            Dim arc As SketchArc
+            Try
+                arc = serSketch.SketchArcs.AddByThreePoints(
+                    tg.CreatePoint2d(startSk.X, startSk.Y),
+                    tg.CreatePoint2d(midSk.X, midSk.Y),
+                    tg.CreatePoint2d(endSk.X, endSk.Y))
+            Catch ex As Exception
+                Throw New Exception(
+                    "[Serration — Arc at X=" & sx.ToString("F3") & "] " &
+                    ex.Message, ex)
+            End Try
+
+            Try
+                serSketch.SketchLines.AddByTwoPoints(
+                    arc.EndSketchPoint, arc.StartSketchPoint)
+            Catch ex As Exception
+                Throw New Exception(
+                    "[Serration — CloseLine at X=" & sx.ToString("F3") & "] " &
+                    ex.Message, ex)
+            End Try
+        Next
+
+        ' Cut through bar width (symmetric)
+        Dim cutProfile As Profile
+        Try
+            cutProfile = serSketch.Profiles.AddForSolid()
+        Catch ex As Exception
+            Throw New Exception(
+                "[Serration — AddForSolid] " & ex.Message, ex)
+        End Try
+
+        Try
+            Dim cutDef As ExtrudeDefinition =
+                compDef.Features.ExtrudeFeatures.CreateExtrudeDefinition(
+                    cutProfile, PartFeatureOperationEnum.kCutOperation)
+            cutDef.SetDistanceExtent(
+                widthCm + 1.0,
+                PartFeatureExtentDirectionEnum.kSymmetricExtentDirection)
+            compDef.Features.ExtrudeFeatures.Add(cutDef)
+        Catch ex As Exception
+            Throw New Exception(
+                "[Serration — Extrude] " & ex.Message, ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Returns an existing SketchPoint from the point-map if one was
+    ''' stored by a previous entity, or creates a new Point2d.
+    ''' </summary>
+    Private Shared Function GetOrCreatePoint(
+            tg As TransientGeometry,
+            ptMap As Dictionary(Of String, Object),
+            x As Double, y As Double) As Object
+        Dim key As String = Math.Round(x, 4).ToString("F4") & "," &
+                            Math.Round(y, 4).ToString("F4")
+        If ptMap.ContainsKey(key) Then
+            Return ptMap(key)
+        End If
+        Dim pt As Object = tg.CreatePoint2d(x, y)
+        ptMap(key) = pt
+        Return pt
+    End Function
+
+    ''' <summary>
+    ''' Stores an actual SketchPoint into the point-map, replacing
+    ''' any Point2d that was used during initial creation.
+    ''' </summary>
+    Private Shared Sub StoreSketchPoint(
+            ptMap As Dictionary(Of String, Object),
+            x As Double, y As Double,
+            sketchPoint As SketchPoint)
+        Dim key As String = Math.Round(x, 4).ToString("F4") & "," &
+                            Math.Round(y, 4).ToString("F4")
+        ptMap(key) = sketchPoint
+    End Sub
+
+    ''' <summary>
+    ''' Returns the best available Part template file path.
+    ''' Tries four strategies in order so that E_INVALIDARG from
+    ''' Documents.Add is avoided even on non-standard Inventor installs.
+    ''' Returns an empty string as a last resort (Inventor uses its own
+    ''' built-in default in some versions when given "").
+    ''' </summary>
+    Private Function GetPartTemplatePath() As String
+        ' Strategy 1: English-unit template (matches our inch workflow)
+        Try
+            Dim p As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kPartDocumentObject,
+                SystemOfMeasureEnum.kEnglishSystemOfMeasure)
+            If Not String.IsNullOrEmpty(p) AndAlso IO.File.Exists(p) Then
+                Return p
+            End If
+        Catch
+        End Try
+
+        ' Strategy 2: Metric template (acceptable — our geometry uses cm anyway)
+        Try
+            Dim p As String = _app.FileManager.GetTemplateFile(
+                DocumentTypeEnum.kPartDocumentObject,
+                SystemOfMeasureEnum.kMetricSystemOfMeasure)
+            If Not String.IsNullOrEmpty(p) AndAlso IO.File.Exists(p) Then
+                Return p
+            End If
+        Catch
+        End Try
+
+        ' Strategy 3: Search the active design project's template directory
+        Try
+            Dim templateDir As String =
+                _app.DesignProjectManager.ActiveDesignProject.TemplateDir
+            If Not String.IsNullOrEmpty(templateDir) AndAlso
+               IO.Directory.Exists(templateDir) Then
+                ' Prefer English template by name
+                For Each candidate As String In {"Standard (in).ipt", "Standard.ipt"}
+                    Dim full As String = IO.Path.Combine(templateDir, candidate)
+                    If IO.File.Exists(full) Then Return full
+                Next
+                ' Fall back to any .ipt in the template root
+                Dim any() As String = IO.Directory.GetFiles(templateDir, "*.ipt")
+                If any.Length > 0 Then Return any(0)
+            End If
+        Catch
+        End Try
+
+        ' Strategy 4: Last resort — empty string (Inventor uses built-in default
+        ' in some versions; may still throw in others)
+        Trace.TraceWarning(
+            ": HMG PartGen: Could not locate a Part template file. " &
+            "Passing empty string to Documents.Add.")
+        Return ""
+    End Function
+
+    ''' <summary>
+    ''' Sets a custom iProperty on the part document.
+    ''' </summary>
+    Private Sub SetCustomProperty(doc As PartDocument,
+                                   propName As String,
+                                   propValue As String)
+        Try
+            Dim customSet As PropertySet = doc.PropertySets.Item(
+                "Inventor User Defined Properties")
+
+            ' Try updating existing
+            Try
+                Dim existing As [Property] = customSet.Item(propName)
+                existing.Value = propValue
+                Return
+            Catch
+            End Try
+
+            ' Add new
+            customSet.Add(propValue, propName)
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG PartGen: Could not set property '" &
+                propName & "': " & ex.Message)
+        End Try
+    End Sub
+
+End Class

@@ -1,0 +1,296 @@
+﻿'////////////////////////////////////////////////////////////////////
+' Hand Made Grating Addin - VB.NET
+'
+' GratingCommand: Defines and handles the "Create Grating" button.
+' Registered during add-in activation; placed on the Tools ribbon tab
+' in Part, Assembly, and ZeroDoc environments.
+'
+' Phase 3: Delegates to PerimeterSelectionService for the real workflow.
+' Phase 4: Opens input form after perimeter validation.
+' Phase 5: Generates bearing bar layout from perimeter + parameters.
+' Phase 6: Creates .ipt part files for each bearing bar.
+' Phase 7: Assembles all bearing bars into a positioned .iam assembly.
+' Phase 8: Extended input form (V2) with cross bar, surface, banding.
+' Phase 10: Project-driven workflow — all state flows through GratingProject.
+' Phase 11: Boundary Source Dialog before perimeter extraction.
+'////////////////////////////////////////////////////////////////////
+
+Imports System.Diagnostics
+Imports System.Drawing
+Imports System.IO
+Imports Inventor
+
+''' <summary>
+''' Defines the Create Grating button and handles its click event.
+''' </summary>
+Public Class GratingCommand
+
+    Private Const InternalName As String = "HMG_CreateGrating"
+    Private Const DisplayName As String = "Create Grating"
+    Private Const DescriptionText As String = "Creates a hand-made grating feature."
+    Private Const ToolTipText As String = "Create Grating"
+
+    Private _buttonDefinition As ButtonDefinition
+    Private _app As Application
+
+    ''' <summary>
+    ''' The most recent grating project. Holds perimeter, parameters,
+    ''' layout, generation, and assembly results for the last execution.
+    ''' </summary>
+    Public Property LastProject As GratingProject
+
+    ''' <summary>
+    ''' Creates the button definition and wires up the click handler.
+    ''' Must be called every time the add-in activates.
+    ''' </summary>
+    Public Sub CreateDefinition(app As Application, clientId As String)
+        _app = app
+
+        ' Load icons from Resources folder next to the DLL
+        Dim smallIcon As Object = Nothing
+        Dim largeIcon As Object = Nothing
+        Try
+            Dim asmDir As String = IO.Path.GetDirectoryName(
+                Reflection.Assembly.GetExecutingAssembly().Location)
+            Dim resDir As String = IO.Path.Combine(asmDir, "Resources")
+
+            Dim small16 As String = IO.Path.Combine(resDir, "GratingIcon16.png")
+            Dim large32 As String = IO.Path.Combine(resDir, "GratingIcon32.png")
+
+            If IO.File.Exists(small16) Then
+                smallIcon = PictureDispHelper.ImageToPictureDisp(New Bitmap(small16))
+            End If
+            If IO.File.Exists(large32) Then
+                largeIcon = PictureDispHelper.ImageToPictureDisp(New Bitmap(large32))
+            End If
+
+            Trace.TraceInformation(": HMG: Icons loaded — small=" &
+                (smallIcon IsNot Nothing).ToString() &
+                ", large=" & (largeIcon IsNot Nothing).ToString())
+        Catch ex As Exception
+            Trace.TraceWarning(": HMG: Could not load icons: " & ex.Message)
+        End Try
+
+        _buttonDefinition = app.CommandManager.ControlDefinitions.AddButtonDefinition(
+            DisplayName,
+            InternalName,
+            CommandTypesEnum.kShapeEditCmdType,
+            clientId,
+            DescriptionText,
+            ToolTipText,
+            smallIcon,
+            largeIcon)
+
+        AddHandler _buttonDefinition.OnExecute, AddressOf OnExecute
+        Trace.TraceInformation(": HandMadeGratingAddinVB: Button definition created.")
+    End Sub
+
+    ''' <summary>
+    ''' Places the button on the Tools ribbon tab in Part, Assembly, and ZeroDoc ribbons.
+    ''' Only call when firstTime is True during Activate.
+    ''' </summary>
+    Public Sub AddToRibbon(app As Application, clientId As String)
+        Dim uiMgr As UserInterfaceManager = app.UserInterfaceManager
+        Dim targetRibbons() As String = {"Part", "Assembly", "ZeroDoc"}
+
+        For Each ribbonName As String In targetRibbons
+            Try
+                Dim ribbon As Ribbon = uiMgr.Ribbons.Item(ribbonName)
+                Dim toolsTab As RibbonTab = ribbon.RibbonTabs.Item("id_TabTools")
+
+                Dim panelInternalName As String = "HMG_Panel_" & ribbonName
+                Dim panel As RibbonPanel = Nothing
+
+                ' Reuse existing panel if the add-in was reloaded in the same session
+                Try
+                    panel = toolsTab.RibbonPanels.Item(panelInternalName)
+                Catch
+                    panel = toolsTab.RibbonPanels.Add(
+                        "Hand Made Grating",
+                        panelInternalName,
+                        clientId)
+                End Try
+
+                panel.CommandControls.AddButton(_buttonDefinition, True)
+                Trace.TraceInformation(": HandMadeGratingAddinVB: Button added to " &
+                                       ribbonName & " ribbon.")
+            Catch ex As Exception
+                Trace.TraceWarning(": HandMadeGratingAddinVB: Skipped " &
+                                   ribbonName & " ribbon: " & ex.Message)
+            End Try
+        Next
+    End Sub
+
+    Private Sub OnExecute(context As NameValueMap)
+        Trace.TraceInformation(": HMG: Create Grating command executed.")
+
+        ' --- Phase 11: Boundary Source Dialog ---
+        Dim sourceDialog As New BoundarySourceDialog()
+        Dim sourceResult As System.Windows.Forms.DialogResult
+
+        Using sourceDialog
+            sourceResult = sourceDialog.ShowDialog()
+
+            If sourceResult <> System.Windows.Forms.DialogResult.OK Then
+                Trace.TraceInformation(": HMG: User cancelled boundary source dialog.")
+                Return
+            End If
+        End Using
+
+        Dim projectName As String = sourceDialog.ProjectName
+        Dim sourceType As BoundarySourceType = sourceDialog.SelectedSourceType
+
+        Trace.TraceInformation(": HMG: Boundary source — project=""" &
+            projectName & """, type=" & sourceType.ToString())
+
+        ' --- Route based on selected source type ---
+        Dim project As GratingProject = Nothing
+
+        Select Case sourceType
+            Case BoundarySourceType.SelectedSketch
+                project = ResolveFromSelectedSketch(projectName)
+
+            Case Else
+                ' Phase 12+: other source types not yet implemented
+                MsgBox("The """ & sourceType.ToString() &
+                       """ boundary source is not yet available." & vbCrLf &
+                       "Please use ""Use currently selected sketch"" for now.",
+                       MsgBoxStyle.Information,
+                       "Hand Made Grating")
+                Return
+        End Select
+
+        If project Is Nothing Then Return
+        LastProject = project
+
+        Trace.TraceInformation(": HMG: Project created — " & project.ToString())
+        Trace.TraceInformation(": HMG: Boundary source — " &
+            project.BoundarySource.ToString())
+        Trace.TraceInformation(": HMG: Perimeter OK — " &
+            project.Perimeter.SketchName & ", " &
+            project.Perimeter.EdgeCount & " edges, " &
+            project.Perimeter.OuterLoopVertices.Count & " vertices. Opening input form.")
+
+        ' --- Phase 4: Collect grating parameters ---
+        Dim defaults As GratingParameters = GratingParameters.CreateDefaults()
+
+        Using form As New GratingInputForm(defaults)
+            Dim dlgResult As System.Windows.Forms.DialogResult = form.ShowDialog()
+
+            If dlgResult <> System.Windows.Forms.DialogResult.OK Then
+                Trace.TraceInformation(": HMG: User cancelled input form.")
+                Return
+            End If
+
+            project.Parameters = form.Parameters
+        End Using
+
+        Trace.TraceInformation(": HMG: Parameters stored — " &
+            "Direction=" & project.Parameters.SpanDirection.ToString() &
+            ", Depth=" & project.Parameters.BarDepth &
+            ", Width=" & project.Parameters.BarWidth &
+            ", BarOC=" & project.Parameters.OnCenterSpacing &
+            ", CrossBar=" & CrossBarTypeHelper.GetDisplayName(project.Parameters.CrossBar) &
+            ", CrossBarOC=" & project.Parameters.CrossBarOnCenter &
+            ", 1stOffset=" & project.Parameters.FirstCrossBarOffset &
+            ", Surface=" & project.Parameters.SurfaceProfile.ToString() &
+            ", Banding=" & project.Parameters.Banding.ToString())
+
+        ' --- Phase 5: Generate bearing bar layout ---
+        Trace.TraceInformation(": HMG: Starting bearing bar layout generation...")
+
+        Dim layoutService As New BearingBarLayoutService()
+        project.LayoutResult = layoutService.Generate(project.Perimeter, project.Parameters)
+
+        If Not project.LayoutResult.Success Then
+            MsgBox("Layout generation failed:" & vbCrLf & vbCrLf &
+                   project.LayoutResult.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return
+        End If
+
+        Trace.TraceInformation(": HMG: Layout complete — " &
+            project.LayoutResult.Bars.Count & " bars generated.")
+
+        ' Log each bar for debugging
+        For Each bar As TrimmedBearingBar In project.LayoutResult.Bars
+            Trace.TraceInformation(": HMG:   " & bar.ToString())
+        Next
+
+        ' --- Phase 6: Generate .ipt part files ---
+        Trace.TraceInformation(": HMG: Starting bearing bar part generation...")
+
+        Dim partGenerator As New BearingBarPartGenerator(_app)
+        project.GenerationResult = partGenerator.Generate(
+            project.LayoutResult, project.Parameters)
+
+        If Not project.GenerationResult.Success Then
+            MsgBox("Part generation failed:" & vbCrLf & vbCrLf &
+                   project.GenerationResult.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating")
+            Return
+        End If
+
+        Trace.TraceInformation(": HMG: Part generation complete — " &
+            project.GenerationResult.TotalSaved & "/" &
+            project.GenerationResult.TotalRequested & " files saved.")
+
+        ' --- Phase 7: Generate assembly ---
+        Trace.TraceInformation(": HMG: Starting assembly generation...")
+
+        Dim asmGenerator As New GratingAssemblyGenerator(_app)
+        project.AssemblyResult = asmGenerator.Generate(
+            project.GenerationResult, project.LayoutResult, project.Parameters)
+
+        If Not project.AssemblyResult.Success Then
+            ' Show part generation results even if assembly failed
+            MsgBox(project.GenerationResult.ToSummary() & vbCrLf & vbCrLf &
+                   "Assembly generation failed:" & vbCrLf &
+                   project.AssemblyResult.ErrorMessage,
+                   MsgBoxStyle.Exclamation,
+                   "Hand Made Grating — Result")
+            Return
+        End If
+
+        ' Mark project complete
+        project.LastModifiedUtc = DateTime.UtcNow
+
+        Trace.TraceInformation(": HMG: Assembly complete — " &
+            project.AssemblyResult.TotalInserted & " bars inserted.")
+        Trace.TraceInformation(": HMG: Project complete — " & project.ToString())
+
+        MsgBox(project.GenerationResult.ToSummary() & vbCrLf & vbCrLf &
+               project.AssemblyResult.ToSummary(),
+               MsgBoxStyle.Information,
+               "Hand Made Grating — Generation Result")
+    End Sub
+
+    ''' <summary>
+    ''' Removes the click handler. Call during Deactivate.
+    ''' </summary>
+    Public Sub Cleanup()
+        If _buttonDefinition IsNot Nothing Then
+            RemoveHandler _buttonDefinition.OnExecute, AddressOf OnExecute
+            _buttonDefinition = Nothing
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Helper to convert System.Drawing.Image to COM IPictureDisp
+    ''' using the protected AxHost.GetIPictureDispFromPicture method.
+    ''' </summary>
+    Private Class PictureDispHelper
+        Inherits System.Windows.Forms.AxHost
+
+        Private Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Shared Function ImageToPictureDisp(img As Image) As Object
+            Return GetIPictureDispFromPicture(img)
+        End Function
+    End Class
+
+End Class
