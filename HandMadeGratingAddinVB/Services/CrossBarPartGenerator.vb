@@ -233,10 +233,19 @@ Public Class CrossBarPartGenerator
              perimeter.OuterLoopVertices IsNot Nothing AndAlso
              perimeter.OuterLoopVertices.Count >= 3)
         Dim polyEdges As List(Of Double()()) = Nothing
+        Dim arcEdgeMap As Dictionary(Of Integer, CrossBarArcEdgeContext) = Nothing
         If hasPolygon Then
             Dim closedPoly As List(Of Double()) =
                 EnsurePolygonClosed(perimeter.OuterLoopVertices)
             polyEdges = BuildPolygonEdges(closedPoly)
+            ' Arc-aware trim: chord edges of an arc are replaced with the
+            ' exact intersection of the cross-bar scan line and the curved
+            ' band bar's inner-face circle (radius R ± barWidth from arc
+            ' centre), so the cross bar stops at the inner face instead of
+            ' piercing through it.  Mirrors the bearing-bar fix in
+            ' BearingBarLayoutService.BuildArcEdgeMap (v1.5.15).
+            arcEdgeMap = BuildArcEdgeMap(
+                perimeter, closedPoly, params.BarWidth, polyEdges.Count)
         End If
 
         ' Fallback fixed bounds (used when no polygon is available)
@@ -275,7 +284,8 @@ Public Class CrossBarPartGenerator
                 ' separate cross bar segments per position.
                 Dim lateralHits As List(Of CrossBarLateralHit) =
                     FindLateralIntersections(polyEdges, spanIdx, lateralIdx,
-                                              cbPos, params.BarWidth)
+                                              cbPos, params.BarWidth,
+                                              arcEdgeMap)
 
                 If lateralHits.Count >= 2 Then
                     ' Sort by lateral coordinate (establishes entry/exit ordering).
@@ -714,10 +724,12 @@ Public Class CrossBarPartGenerator
             spanIdx As Integer,
             lateralIdx As Integer,
             spanPos As Double,
-            barWidth As Double) As List(Of CrossBarLateralHit)
+            barWidth As Double,
+            arcEdgeMap As Dictionary(Of Integer, CrossBarArcEdgeContext)) As List(Of CrossBarLateralHit)
         Dim hits As New List(Of CrossBarLateralHit)
 
-        For Each edge As Double()() In edges
+        For ei As Integer = 0 To edges.Count - 1
+            Dim edge As Double()() = edges(ei)
             Dim a As Double() = edge(0)
             Dim b As Double() = edge(1)
 
@@ -742,7 +754,36 @@ Public Class CrossBarPartGenerator
             ' Linear interpolation to find lateral coordinate at spanPos
             Dim t As Double = (spanPos - aSpan) / dSpan
             Dim dLat As Double = b(lateralIdx) - a(lateralIdx)
-            Dim lateralHit As Double = a(lateralIdx) + t * dLat
+            Dim chordLateralHit As Double = a(lateralIdx) + t * dLat
+
+            ' Arc-aware override: if this edge is a tessellated chord of
+            ' an arc, replace the chord interpolation with the exact
+            ' intersection of the cross-bar scan line and the curved band
+            ' bar's inner-face circle (radius R ± barWidth from arc
+            ' centre).  EdgeInset = 0 — the circle root already sits on
+            ' the inner face, no banded shift needed.
+            If arcEdgeMap IsNot Nothing AndAlso arcEdgeMap.ContainsKey(ei) Then
+                Dim ctx As CrossBarArcEdgeContext = arcEdgeMap(ei)
+                Dim cSpan As Double = If(spanIdx = 0, ctx.CenterX, ctx.CenterY)
+                Dim cLat As Double = If(lateralIdx = 0, ctx.CenterX, ctx.CenterY)
+                Dim dy As Double = spanPos - cSpan
+                Dim disc As Double =
+                    ctx.InnerFaceRadius * ctx.InnerFaceRadius - dy * dy
+                If disc >= 0 Then
+                    Dim root As Double = Math.Sqrt(disc)
+                    Dim r1 As Double = cLat + root
+                    Dim r2 As Double = cLat - root
+                    Dim arcHit As Double =
+                        If(Math.Abs(r1 - chordLateralHit) <=
+                           Math.Abs(r2 - chordLateralHit), r1, r2)
+                    hits.Add(New CrossBarLateralHit(arcHit, 0))
+                    Continue For
+                End If
+                ' Discriminant < 0: scan line lies outside the inner-face
+                ' circle — fall through to chord-based behaviour.
+            End If
+
+            Dim lateralHit As Double = chordLateralHit
 
             ' Per-edge along-lateral inset for banded-mode trimming.
             '
@@ -776,6 +817,84 @@ Public Class CrossBarPartGenerator
         Next
 
         Return hits
+    End Function
+
+    ''' <summary>
+    ''' Inner-face geometry for one tessellated chord of an arc.  Used
+    ''' by <see cref="FindLateralIntersections"/> to replace the chord
+    ''' interpolation with the exact circle intersection at the curved
+    ''' band bar's inner face.  Mirror of
+    ''' BearingBarLayoutService.ArcEdgeContext.
+    ''' </summary>
+    Private Structure CrossBarArcEdgeContext
+        Public CenterX As Double
+        Public CenterY As Double
+        Public InnerFaceRadius As Double
+    End Structure
+
+    ''' <summary>
+    ''' Builds a mapping from polygon edge index to inner-face circle
+    ''' geometry for every chord edge that belongs to an arc.  Edges
+    ''' not in the map are straight perimeter edges and use the
+    ''' existing chord-based clip.  Mirror of
+    ''' BearingBarLayoutService.BuildArcEdgeMap.
+    ''' </summary>
+    Private Shared Function BuildArcEdgeMap(
+            perimeter As PerimeterData,
+            poly As List(Of Double()),
+            barWidth As Double,
+            edgeCount As Integer) As Dictionary(Of Integer, CrossBarArcEdgeContext)
+        Dim map As New Dictionary(Of Integer, CrossBarArcEdgeContext)
+        If perimeter Is Nothing OrElse
+           perimeter.ArcSegments Is Nothing OrElse
+           perimeter.ArcSegments.Count = 0 Then
+            Return map
+        End If
+
+        ' Signed area → +1 for CCW polygon (perpendicular -ey,ex points
+        ' inward), −1 for CW.  Matches BandBarGenerator's
+        ' ArcExtendsOutward classification: sweep × perpSign < 0 ⇒
+        ' cutout/outward arc, band bar extends radially outward.
+        Dim signedArea As Double = 0
+        Dim n As Integer = poly.Count - 1 ' last vertex duplicates first
+        For vi As Integer = 0 To n - 1
+            Dim vj As Integer = (vi + 1) Mod n
+            signedArea += poly(vi)(0) * poly(vj)(1) -
+                          poly(vj)(0) * poly(vi)(1)
+        Next
+        Dim perpSign As Double = If(signedArea > 0, 1.0, -1.0)
+
+        For Each arc As PerimeterArcInfo In perimeter.ArcSegments
+            Dim outward As Boolean = (arc.SweepAngle * perpSign < 0)
+            Dim innerFaceR As Double =
+                If(outward, arc.Radius + barWidth,
+                            arc.Radius - barWidth)
+            If innerFaceR <= 0 Then Continue For
+
+            Dim ctx As New CrossBarArcEdgeContext() With {
+                .CenterX = arc.CenterX,
+                .CenterY = arc.CenterY,
+                .InnerFaceRadius = innerFaceR}
+
+            Dim lo As Integer = arc.FirstVertexIndex
+            Dim hi As Integer = arc.FirstVertexIndex + arc.VertexCount - 1
+            For ei As Integer = lo To hi
+                If ei >= 0 AndAlso ei < edgeCount Then
+                    map(ei) = ctx
+                End If
+            Next
+
+            Trace.TraceInformation(
+                ": HMG CrossBarGen: Arc clip — centre=(" &
+                arc.CenterX.ToString("F3") & "," &
+                arc.CenterY.ToString("F3") & ") R=" &
+                arc.Radius.ToString("F3") & " outward=" &
+                outward.ToString() & " innerFaceR=" &
+                innerFaceR.ToString("F3") & " edges=" &
+                lo & ".." & hi)
+        Next
+
+        Return map
     End Function
 
 End Class
