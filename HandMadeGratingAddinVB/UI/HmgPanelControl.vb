@@ -206,6 +206,12 @@ Public Class HmgPanelControl
         0.4375, 0.6875, 0.9375, 1.1875, 1.375, 1.875, 2.375
     }
 
+    ' Cross-bar O.C. spacing — values in inches, parallel to the combo
+    ' display strings "2", "3-5/8", "4" added in BuildParameterFields().
+    Private Shared ReadOnly _crossBarOcValues() As Double = {
+        2.0, 3.625, 4.0
+    }
+
     ' ==================================================================
     '  Public properties
     ' ==================================================================
@@ -363,6 +369,15 @@ Public Class HmgPanelControl
         _mode = PanelMode.BoundarySource
         ShowBoundarySourceContent()
         EnsureMouseHook()
+    End Sub
+
+    ''' <summary>
+    ''' Clears the Continue/Cancel latch so boundary source can be retried
+    ''' after a validation error without restarting Create Grating.
+    ''' </summary>
+    Public Sub ResetBoundarySourceAction()
+        _action = UserAction.None
+        _actionTaken = False
     End Sub
 
     ''' <summary>
@@ -557,6 +572,38 @@ Public Class HmgPanelControl
     '  Content display helpers
     ' ==================================================================
 
+    ''' <summary>
+    ''' Appends the add-in assembly version under the branding footer.
+    ''' </summary>
+    Private Sub AppendAssemblyVersionLabel(x As Integer, ByRef y As Integer)
+        Dim lblVersion As New Label()
+        Dim asm As System.Reflection.Assembly =
+            System.Reflection.Assembly.GetExecutingAssembly()
+        Dim ver As Version = asm.GetName().Version
+        lblVersion.Text = "v" & ver.Major & "." & ver.Minor & "." & ver.Build
+        lblVersion.Font = New Font(Me.Font.FontFamily, 7.0F, FontStyle.Regular)
+        lblVersion.AutoSize = True
+        lblVersion.ForeColor = Color.FromArgb(140, 140, 150)
+        lblVersion.Location = New Point(x, y)
+        _contentPanel.Controls.Add(lblVersion)
+        y += lblVersion.PreferredHeight + 14
+    End Sub
+
+    ''' <summary>
+    ''' Sets scroll extent for the content panel (Dock Fill + AutoScroll).
+    ''' Prefer this over assigning <see cref="Control.Height"/> on a docked child.
+    ''' </summary>
+    Private Sub ApplyContentPanelScrollHeight(contentBottomY As Integer)
+        _contentHeight = contentBottomY
+        Dim w As Integer = Me.ClientSize.Width
+        If w <= 0 Then
+            w = Math.Max(1, _contentPanel.ClientSize.Width)
+        End If
+        If w <= 0 Then w = 1
+        _contentPanel.AutoScrollMinSize = New Size(
+            w, Math.Max(1, _contentHeight))
+    End Sub
+
     Private Sub ShowIdleContent()
         If _buttonPanel IsNot Nothing Then _buttonPanel.Visible = False
         _contentPanel.SuspendLayout()
@@ -684,22 +731,9 @@ Public Class HmgPanelControl
         _contentPanel.Controls.Add(lblCopyright)
         y += lblCopyright.PreferredHeight + 4
 
-        Dim lblVersion As New Label()
-        Dim asm As System.Reflection.Assembly = System.Reflection.Assembly.GetExecutingAssembly()
-        Dim ver As Version = asm.GetName().Version
-        lblVersion.Text = "v" & ver.Major & "." & ver.Minor & "." & ver.Build
-        lblVersion.Font = New Font(Me.Font.FontFamily, 7.0F, FontStyle.Regular)
-        lblVersion.AutoSize = True
-        lblVersion.ForeColor = Color.FromArgb(90, 90, 90)
-        lblVersion.Location = New Point(x, y)
-        _contentPanel.Controls.Add(lblVersion)
-        y += lblVersion.PreferredHeight + 14
+        AppendAssemblyVersionLabel(x, y)
 
-        ' Enable scrolling if content exceeds visible area
-        _contentHeight = y + 10
-        _contentPanel.Width = Me.ClientSize.Width
-        _contentPanel.Height = Math.Max(_contentHeight, Me.ClientSize.Height)
-        _contentPanel.Top = 0
+        ApplyContentPanelScrollHeight(y + 10)
         _contentPanel.ResumeLayout(True)
         UpdateScrollbar()
     End Sub
@@ -820,21 +854,9 @@ Public Class HmgPanelControl
         _contentPanel.Controls.Add(lblCopyright)
         y += lblCopyright.PreferredHeight + 4
 
-        Dim lblVersion As New Label()
-        Dim asm As System.Reflection.Assembly = System.Reflection.Assembly.GetExecutingAssembly()
-        Dim ver As Version = asm.GetName().Version
-        lblVersion.Text = "v" & ver.Major & "." & ver.Minor & "." & ver.Build
-        lblVersion.Font = New Font(Me.Font.FontFamily, 7.0F, FontStyle.Regular)
-        lblVersion.AutoSize = True
-        lblVersion.ForeColor = Color.FromArgb(90, 90, 90)
-        lblVersion.Location = New Point(x, y)
-        _contentPanel.Controls.Add(lblVersion)
-        y += lblVersion.PreferredHeight + 14
+        AppendAssemblyVersionLabel(x, y)
 
-        _contentHeight = y + 10
-        _contentPanel.Width = Me.ClientSize.Width
-        _contentPanel.Height = Math.Max(_contentHeight, Me.ClientSize.Height)
-        _contentPanel.Top = 0
+        ApplyContentPanelScrollHeight(y + 10)
         _contentPanel.ResumeLayout(True)
         UpdateScrollbar()
     End Sub
@@ -865,12 +887,9 @@ Public Class HmgPanelControl
         _contentPanel.Controls.Add(_lblProgressStep)
 
         _contentPanel.ResumeLayout(True)
+        _contentPanel.PerformLayout()
 
-        ' No scrolling needed
-        _contentHeight = Me.ClientSize.Height
-        _contentPanel.Width = Me.ClientSize.Width
-        _contentPanel.Height = _contentHeight
-        _contentPanel.Top = 0
+        ApplyContentPanelScrollHeight(_lblProgressStep.Bottom + 24)
         UpdateScrollbar()
     End Sub
 
@@ -999,13 +1018,7 @@ Public Class HmgPanelControl
             End If
         Next
 
-        ' Set content height for manual scrolling
-        Dim scrollAreaH As Integer = Me.ClientSize.Height
-        If _buttonPanel IsNot Nothing AndAlso _buttonPanel.Visible Then scrollAreaH -= ButtonPanelHeight
-        _contentHeight = y + 10
-        _contentPanel.Width = Me.ClientSize.Width
-        _contentPanel.Height = Math.Max(_contentHeight, scrollAreaH)
-        _contentPanel.Top = 0
+        ApplyContentPanelScrollHeight(y + 10)
         _contentPanel.ResumeLayout(True)
         UpdateScrollbar()
     End Sub
@@ -1214,7 +1227,8 @@ Public Class HmgPanelControl
         lblCopyright.Font = New Font(Me.Font.FontFamily, 7.5F, FontStyle.Regular)
         lblCopyright.AutoSize = True
         lblCopyright.ForeColor = Color.FromArgb(110, 110, 110)
-        brandH += lblCopyright.PreferredHeight + 14
+        brandH += lblCopyright.PreferredHeight + 4
+        brandH += 14 + 14  ' version label + bottom padding
 
         Dim visibleH As Integer = Me.ClientSize.Height
         Dim brandTop As Integer = Math.Max(y, visibleH - brandH)
@@ -1259,13 +1273,11 @@ Public Class HmgPanelControl
 
         lblCopyright.Location = New Point(x, y)
         _contentPanel.Controls.Add(lblCopyright)
-        y += lblCopyright.PreferredHeight + 14
+        y += lblCopyright.PreferredHeight + 4
 
-        ' Enable scrolling if content exceeds visible area
-        _contentHeight = y + 10
-        _contentPanel.Width = Me.ClientSize.Width
-        _contentPanel.Height = Math.Max(_contentHeight, Me.ClientSize.Height)
-        _contentPanel.Top = 0
+        AppendAssemblyVersionLabel(x, y)
+
+        ApplyContentPanelScrollHeight(y + 10)
         _contentPanel.ResumeLayout(True)
         UpdateScrollbar()
     End Sub
@@ -1350,7 +1362,14 @@ Public Class HmgPanelControl
         _cboSpanDirection.Size = New Size(cw, 22)
         _cboSpanDirection.Anchor = anc
         StyleComboBox(_cboSpanDirection)
-        _cboSpanDirection.Items.AddRange(New Object() {"Along X", "Along Y"})
+        ' Labels describe the BAR ORIENTATION (which is what a typical
+        ' user thinks about) rather than the raw axis name.  Index 0 is
+        ' the vertical option (AlongY); index 1 is horizontal (AlongX).
+        ' Note: this is the opposite of the previous ordering — see
+        ' PopulateParamDefaults / ParseCurrentParameters for the mapping.
+        _cboSpanDirection.Items.AddRange(New Object() {
+            "Bearing bars vertical (along Y)",
+            "Bearing bars horizontal (along X)"})
         _contentPanel.Controls.Add(_cboSpanDirection)
         y += 40
 
@@ -1409,7 +1428,10 @@ Public Class HmgPanelControl
         _cboCrossBarOC.Size = New Size(cw, 22)
         _cboCrossBarOC.Anchor = anc
         StyleComboBox(_cboCrossBarOC)
-        _cboCrossBarOC.Items.AddRange(New Object() {"2", "4"})
+        ' Cross-bar OC options (kept in lockstep with _crossBarOcValues
+        ' below).  3-5/8" (3.625") is a standard heavy-duty industrial
+        ' OC matching common reference drawings.
+        _cboCrossBarOC.Items.AddRange(New Object() {"2", "3-5/8", "4"})
         _contentPanel.Controls.Add(_cboCrossBarOC)
         y += 40
 
@@ -1669,12 +1691,7 @@ Public Class HmgPanelControl
 
         PopulateParamDefaults()
 
-        ' Set content height for manual scrolling
-        Dim scrollAreaH As Integer = Me.ClientSize.Height - ButtonPanelHeight
-        _contentHeight = y + 10
-        _contentPanel.Width = Me.ClientSize.Width
-        _contentPanel.Height = Math.Max(_contentHeight, scrollAreaH)
-        _contentPanel.Top = 0
+        ApplyContentPanelScrollHeight(y + 10)
         _contentPanel.ResumeLayout(True)
         UpdateScrollbar()
     End Sub
@@ -1682,7 +1699,11 @@ Public Class HmgPanelControl
     Private Sub PopulateParamDefaults()
         If _paramDefaults Is Nothing Then Return
 
-        _cboSpanDirection.SelectedIndex = If(_paramDefaults.SpanDirection = SpanDirectionType.AlongY, 1, 0)
+        ' Combo order (since v1.5.7):
+        '   index 0 = "Bearing bars vertical (along Y)"   → AlongY
+        '   index 1 = "Bearing bars horizontal (along X)" → AlongX
+        _cboSpanDirection.SelectedIndex =
+            If(_paramDefaults.SpanDirection = SpanDirectionType.AlongY, 0, 1)
         _txtBarDepth.Text = _paramDefaults.BarDepth.ToString("G")
         _txtBarWidth.Text = _paramDefaults.BarWidth.ToString("G")
 
@@ -1708,7 +1729,17 @@ Public Class HmgPanelControl
             _cboCrossBarType.SelectedIndex = 0
         End If
 
-        _cboCrossBarOC.SelectedIndex = If(Math.Abs(_paramDefaults.CrossBarOnCenter - 2.0) < 0.001, 0, 1)
+        ' Cross-bar O.C. — find closest match in _crossBarOcValues.
+        Dim cbOcIdx As Integer = 0
+        Dim cbOcDiff As Double = Double.MaxValue
+        For i As Integer = 0 To _crossBarOcValues.Length - 1
+            Dim d As Double = Math.Abs(_paramDefaults.CrossBarOnCenter - _crossBarOcValues(i))
+            If d < cbOcDiff Then
+                cbOcDiff = d
+                cbOcIdx = i
+            End If
+        Next
+        _cboCrossBarOC.SelectedIndex = cbOcIdx
         _txtFirstCrossBarOffset.Text = _paramDefaults.FirstCrossBarOffset.ToString("G")
         ' Set banding state from defaults and update toggle buttons
         _isBandingOpen = (_paramDefaults.Banding = BandingOptionType.OpenEnded)
@@ -1760,17 +1791,16 @@ Public Class HmgPanelControl
     ' ==================================================================
 
     ''' <summary>
-    ''' Tracks the last client width so we can detect when the
-    ''' DockableWindow has been resized horizontally and re-layout.
+    ''' Last client size after a successful resize debounce re-layout.
+    ''' Height-only dock changes must still trigger <see cref="RelayoutCurrentMode"/>.
     ''' </summary>
-    Private _lastClientWidth As Integer = 0
+    Private _lastLaidOutClientSize As Size
 
     Private Sub OnContainerResize(sender As Object, e As EventArgs)
         If _contentPanel Is Nothing Then Return
 
-        Dim curWidth As Integer = Me.ClientSize.Width
-        If curWidth <= 0 Then Return
-        If curWidth = _lastClientWidth Then Return
+        Dim cur As Size = Me.ClientSize
+        If cur.Width <= 0 Then Return
 
         ' Defer the actual re-layout until the drag settles.  Restarting
         ' the timer on each Resize tick collapses an entire drag burst
@@ -1789,13 +1819,13 @@ Public Class HmgPanelControl
         If _contentPanel Is Nothing Then Return
         If _isResizing Then Return
 
-        Dim curWidth As Integer = Me.ClientSize.Width
-        If curWidth <= 0 Then Return
-        If curWidth = _lastClientWidth Then Return
+        Dim cur As Size = Me.ClientSize
+        If cur.Width <= 0 Then Return
+        If cur.Equals(_lastLaidOutClientSize) Then Return
 
         _isResizing = True
         Try
-            _lastClientWidth = curWidth
+            _lastLaidOutClientSize = cur
             RelayoutCurrentMode()
 
             ' Force a clean repaint of the entire content panel so any
@@ -1885,7 +1915,8 @@ Public Class HmgPanelControl
         End If
 
         Dim result As New GratingParameters()
-        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 1,
+        ' Combo order: index 0 = vertical (AlongY), index 1 = horizontal (AlongX).
+        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 0,
                                   SpanDirectionType.AlongY,
                                   SpanDirectionType.AlongX)
         result.BarDepth = barDepth
@@ -1905,10 +1936,11 @@ Public Class HmgPanelControl
 
         result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
 
-        Dim ocText As String = CStr(_cboCrossBarOC.SelectedItem)
-        Dim ocValue As Double
-        If Double.TryParse(ocText, ocValue) Then
-            result.CrossBarOnCenter = ocValue
+        ' Look up the OC value by index since some labels are fractions
+        ' (e.g. "3-5/8") that Double.TryParse cannot read directly.
+        Dim cbOcSelIdx As Integer = _cboCrossBarOC.SelectedIndex
+        If cbOcSelIdx >= 0 AndAlso cbOcSelIdx < _crossBarOcValues.Length Then
+            result.CrossBarOnCenter = _crossBarOcValues(cbOcSelIdx)
         Else
             result.CrossBarOnCenter = 2.0
         End If
@@ -2111,8 +2143,9 @@ Public Class HmgPanelControl
     Friend Function ParseCurrentParameters() As GratingParameters
         Dim result As New GratingParameters()
 
+        ' Combo order: index 0 = vertical (AlongY), index 1 = horizontal (AlongX).
         result.SpanDirection = If(_cboSpanDirection IsNot Nothing AndAlso
-            _cboSpanDirection.SelectedIndex = 1,
+            _cboSpanDirection.SelectedIndex = 0,
             SpanDirectionType.AlongY, SpanDirectionType.AlongX)
 
         Dim barDepth As Double
@@ -2132,7 +2165,6 @@ Public Class HmgPanelControl
             result.BarWidth = 0.1875
         End If
 
-        Dim spacing As Double
         If _cboOnCenterSpacing IsNot Nothing AndAlso
            _cboOnCenterSpacing.SelectedIndex >= 0 AndAlso
            _cboOnCenterSpacing.SelectedIndex < _ocSpacingValues.Length Then
@@ -2145,10 +2177,10 @@ Public Class HmgPanelControl
             result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
         End If
 
-        If _cboCrossBarOC IsNot Nothing AndAlso _cboCrossBarOC.SelectedItem IsNot Nothing Then
-            Dim ocValue As Double
-            If Double.TryParse(CStr(_cboCrossBarOC.SelectedItem), ocValue) Then
-                result.CrossBarOnCenter = ocValue
+        If _cboCrossBarOC IsNot Nothing AndAlso _cboCrossBarOC.SelectedIndex >= 0 Then
+            Dim cbIdx2 As Integer = _cboCrossBarOC.SelectedIndex
+            If cbIdx2 < _crossBarOcValues.Length Then
+                result.CrossBarOnCenter = _crossBarOcValues(cbIdx2)
             Else
                 result.CrossBarOnCenter = 2.0
             End If

@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "HZN8GLCaOAA=",
+  "dgSpecHash": "Lrk8kflaVmU=",
   "success": true,
-  "projectFilePath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\DebugPluginLocally.csproj",
+  "projectFilePath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\DebugPluginLocally\\DebugPluginLocally.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\emera\\.nuget\\packages\\microsoft.csharp\\4.7.0\\microsoft.csharp.4.7.0.nupkg.sha512",
     "C:\\Users\\emera\\.nuget\\packages\\system.configuration.configurationmanager\\8.0.1\\system.configuration.configurationmanager.8.0.1.nupkg.sha512",

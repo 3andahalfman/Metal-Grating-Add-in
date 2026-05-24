@@ -23,6 +23,12 @@ Imports System.Windows.Forms
 Public Class GratingInputForm
     Inherits Form
 
+    ' --- Cross-bar O.C. spacing values (inches), paired to the combo
+    '     display strings "2", "3-5/8", "4" added in BuildControls(). ---
+    Private Shared ReadOnly _crossBarOcValues() As Double = {
+        2.0, 3.625, 4.0
+    }
+
     ' --- V1 Controls ---
     Private _cboSpanDirection As ComboBox
     Private _txtBarDepth As TextBox
@@ -97,7 +103,10 @@ Public Class GratingInputForm
         _cboSpanDirection.DropDownStyle = ComboBoxStyle.DropDownList
         _cboSpanDirection.Location = New Point(controlX, yPos)
         _cboSpanDirection.Size = New Size(controlWidth, 21)
-        _cboSpanDirection.Items.AddRange(New Object() {"Along X", "Along Y"})
+        ' Index 0 = vertical (AlongY), index 1 = horizontal (AlongX).
+        _cboSpanDirection.Items.AddRange(New Object() {
+            "Bearing bars vertical (along Y)",
+            "Bearing bars horizontal (along X)"})
         Me.Controls.Add(_cboSpanDirection)
         yPos += rowHeight
 
@@ -138,7 +147,8 @@ Public Class GratingInputForm
         _cboCrossBarOC.DropDownStyle = ComboBoxStyle.DropDownList
         _cboCrossBarOC.Location = New Point(controlX, yPos)
         _cboCrossBarOC.Size = New Size(controlWidth, 21)
-        _cboCrossBarOC.Items.AddRange(New Object() {"2", "4"})
+        ' OC value lookup table is _crossBarOcValues (kept in sync below).
+        _cboCrossBarOC.Items.AddRange(New Object() {"2", "3-5/8", "4"})
         Me.Controls.Add(_cboCrossBarOC)
         yPos += rowHeight
 
@@ -229,7 +239,9 @@ Public Class GratingInputForm
 
     Private Sub PopulateDefaults(defaults As GratingParameters)
         ' V1
-        _cboSpanDirection.SelectedIndex = If(defaults.SpanDirection = SpanDirectionType.AlongY, 1, 0)
+        ' Combo order (since v1.5.7): index 0 = AlongY (vertical), index 1 = AlongX.
+        _cboSpanDirection.SelectedIndex =
+            If(defaults.SpanDirection = SpanDirectionType.AlongY, 0, 1)
         _txtBarDepth.Text = defaults.BarDepth.ToString("G")
         _txtBarWidth.Text = defaults.BarWidth.ToString("G")
         _txtOnCenterSpacing.Text = defaults.OnCenterSpacing.ToString("G")
@@ -244,8 +256,17 @@ Public Class GratingInputForm
             _cboCrossBarType.SelectedIndex = 0
         End If
 
-        ' Cross bar OC: "2" is index 0, "4" is index 1
-        _cboCrossBarOC.SelectedIndex = If(Math.Abs(defaults.CrossBarOnCenter - 2.0) < 0.001, 0, 1)
+        ' Cross bar OC: find closest match in _crossBarOcValues.
+        Dim ocBestIdx As Integer = 0
+        Dim ocBestDiff As Double = Double.MaxValue
+        For i As Integer = 0 To _crossBarOcValues.Length - 1
+            Dim d As Double = Math.Abs(defaults.CrossBarOnCenter - _crossBarOcValues(i))
+            If d < ocBestDiff Then
+                ocBestDiff = d
+                ocBestIdx = i
+            End If
+        Next
+        _cboCrossBarOC.SelectedIndex = ocBestIdx
 
         _txtFirstCrossBarOffset.Text = defaults.FirstCrossBarOffset.ToString("G")
 
@@ -315,8 +336,8 @@ Public Class GratingInputForm
 
         Dim result As New GratingParameters()
 
-        ' V1
-        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 1,
+        ' V1 — combo order: index 0 = vertical (AlongY), index 1 = horizontal (AlongX).
+        result.SpanDirection = If(_cboSpanDirection.SelectedIndex = 0,
                                   SpanDirectionType.AlongY,
                                   SpanDirectionType.AlongX)
         result.BarDepth = barDepth
@@ -328,11 +349,10 @@ Public Class GratingInputForm
         ' V2 — cross bar
         result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
 
-        ' Parse the dropdown text to get the OC value
-        Dim ocText As String = CStr(_cboCrossBarOC.SelectedItem)
-        Dim ocValue As Double
-        If Double.TryParse(ocText, ocValue) Then
-            result.CrossBarOnCenter = ocValue
+        ' Look up the OC by index (some labels are fractions, e.g. "3-5/8").
+        Dim cbOcSelIdx As Integer = _cboCrossBarOC.SelectedIndex
+        If cbOcSelIdx >= 0 AndAlso cbOcSelIdx < _crossBarOcValues.Length Then
+            result.CrossBarOnCenter = _crossBarOcValues(cbOcSelIdx)
         Else
             result.CrossBarOnCenter = 4.0
         End If
@@ -388,8 +408,9 @@ Public Class GratingInputForm
     Private Function BuildCurrentParameters() As GratingParameters
         Dim result As New GratingParameters()
 
+        ' Combo order: index 0 = vertical (AlongY), index 1 = horizontal (AlongX).
         result.SpanDirection = If(_cboSpanDirection IsNot Nothing AndAlso
-            _cboSpanDirection.SelectedIndex = 1,
+            _cboSpanDirection.SelectedIndex = 0,
             SpanDirectionType.AlongY, SpanDirectionType.AlongX)
 
         Dim barDepth As Double
@@ -420,10 +441,10 @@ Public Class GratingInputForm
             result.CrossBar = CType(_cboCrossBarType.SelectedIndex, CrossBarType)
         End If
 
-        If _cboCrossBarOC IsNot Nothing AndAlso _cboCrossBarOC.SelectedItem IsNot Nothing Then
-            Dim ocValue As Double
-            If Double.TryParse(CStr(_cboCrossBarOC.SelectedItem), ocValue) Then
-                result.CrossBarOnCenter = ocValue
+        If _cboCrossBarOC IsNot Nothing AndAlso _cboCrossBarOC.SelectedIndex >= 0 Then
+            Dim cbIdx2 As Integer = _cboCrossBarOC.SelectedIndex
+            If cbIdx2 < _crossBarOcValues.Length Then
+                result.CrossBarOnCenter = _crossBarOcValues(cbIdx2)
             Else
                 result.CrossBarOnCenter = 4.0
             End If

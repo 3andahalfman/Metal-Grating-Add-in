@@ -33,7 +33,13 @@ Public Class GratingCommand
     Private Const DescriptionText As String = "Creates a hand-made grating feature."
     Private Const ToolTipText As String = "Create Grating"
 
+    Private Const ViewSummaryInternalName As String = "HMG_ViewGenerationSummary"
+    Private Const ViewSummaryDisplayName As String = "Generation Summary"
+    Private Const ViewSummaryDescription As String =
+        "Re-open the most recent grating generation summary panel for this assembly."
+
     Private _buttonDefinition As ButtonDefinition
+    Private _viewSummaryButton As ButtonDefinition
     Private _app As Application
 
     ''' <summary>
@@ -92,7 +98,38 @@ Public Class GratingCommand
             largeIcon)
 
         AddHandler _buttonDefinition.OnExecute, AddressOf OnExecute
+        ' Create Grating is only meaningful from a Part document
+        ' (where the perimeter sketch lives).  Disabled by default;
+        ' UpdateButtonsEnabled flips it on when the active doc is a part.
+        _buttonDefinition.Enabled = False
         Trace.TraceInformation(": HandMadeGratingAddinVB: Button definition created.")
+
+        ' --- View Generation Summary button ---
+        ' Re-opens the cached summary panel for the active assembly so the
+        ' user can recover it after closing the dockable window.  Disabled
+        ' by default; enabled only when CurrentDocHasCachedSummary is true.
+        _viewSummaryButton = app.CommandManager.ControlDefinitions.AddButtonDefinition(
+            ViewSummaryDisplayName,
+            ViewSummaryInternalName,
+            CommandTypesEnum.kQueryOnlyCmdType,
+            clientId,
+            ViewSummaryDescription,
+            ViewSummaryDisplayName,
+            smallIcon,
+            largeIcon)
+        _viewSummaryButton.Enabled = False
+        AddHandler _viewSummaryButton.OnExecute, AddressOf OnViewSummaryExecute
+
+        ' Subscribe to availability changes from the dock panel manager
+        ' so both ribbon buttons refresh whenever the active doc /
+        ' environment changes.
+        If DockPanel IsNot Nothing Then
+            DockPanel.SummaryAvailabilityChanged =
+                New Action(AddressOf UpdateButtonsEnabled)
+        End If
+        ' Seed initial state (typically both disabled at add-in start-up
+        ' since the Home page is the default active context).
+        UpdateButtonsEnabled()
     End Sub
 
     ''' <summary>
@@ -135,6 +172,16 @@ Public Class GratingCommand
                 End Try
 
                 panel.CommandControls.AddButton(_buttonDefinition, True)
+
+                ' Add the "View Generation Summary" button beside it.
+                ' Only meaningful on the Assembly ribbon (no cached summary
+                ' would ever exist for a Part doc), but we add it to both
+                ' so the layout is consistent and the disabled state is
+                ' visible if the user navigates into a Part view.
+                If _viewSummaryButton IsNot Nothing Then
+                    panel.CommandControls.AddButton(_viewSummaryButton, True)
+                End If
+
                 Trace.TraceInformation(": HandMadeGratingAddinVB: Button added to " &
                                        ribbonName & " ribbon (dedicated tab).")
             Catch ex As Exception
@@ -181,60 +228,65 @@ Public Class GratingCommand
 
         Dim project As GratingProject = Nothing
 
-        ' --- Phase 11: Boundary Source ---
-        ' Use docked panel when available, fall back to standalone dialog.
+        ' --- Phase 11: Boundary Source + perimeter resolution ---
+        ' Retry boundary UI when extraction fails (e.g. open sketch profile)
+        ' so the user does not have to restart Create Grating.
         Dim projectName As String = Nothing
         Dim sourceType As BoundarySourceType = BoundarySourceType.SelectedSketch
 
-        If DockPanel IsNot Nothing AndAlso DockPanel.IsAvailable Then
-            ' Show boundary source inside the docked panel
-            Dim accepted As Boolean = DockPanel.ShowBoundarySourcePanel("Grating", namedLookup)
-            If Not accepted Then
-                Trace.TraceInformation(": HMG: User cancelled boundary source panel.")
-                Return
-            End If
-            projectName = DockPanel.Panel.ResultProjectName
-            sourceType = DockPanel.Panel.ResultSourceType
-        Else
-            ' Fallback: standalone dialog
-            Using sourceDialog As New BoundarySourceDialog("Grating", namedLookup)
-                Dim sourceResult As System.Windows.Forms.DialogResult =
-                    sourceDialog.ShowDialog()
+        Do
+            project = Nothing
 
-                If sourceResult <> System.Windows.Forms.DialogResult.OK Then
-                    Trace.TraceInformation(": HMG: User cancelled boundary source dialog.")
+            If DockPanel IsNot Nothing AndAlso DockPanel.IsAvailable Then
+                Dim accepted As Boolean =
+                    DockPanel.ShowBoundarySourcePanel("Grating", namedLookup)
+                If Not accepted Then
+                    Trace.TraceInformation(": HMG: User cancelled boundary source panel.")
                     Return
                 End If
+                projectName = DockPanel.Panel.ResultProjectName
+                sourceType = DockPanel.Panel.ResultSourceType
+            Else
+                Using sourceDialog As New BoundarySourceDialog("Grating", namedLookup, _app)
+                    Dim sourceResult As System.Windows.Forms.DialogResult =
+                        sourceDialog.ShowDialog()
 
-                projectName = sourceDialog.ProjectName
-                sourceType = sourceDialog.SelectedSourceType
-            End Using
-        End If
+                    If sourceResult <> System.Windows.Forms.DialogResult.OK Then
+                        Trace.TraceInformation(": HMG: User cancelled boundary source dialog.")
+                        Return
+                    End If
 
-        Trace.TraceInformation(": HMG: Boundary source — project=""" &
-            projectName & """, type=" & sourceType.ToString())
+                    projectName = sourceDialog.ProjectName
+                    sourceType = sourceDialog.SelectedSourceType
+                End Using
+            End If
 
-        ' --- Route based on selected source type ---
-        Select Case sourceType
-            Case BoundarySourceType.NamedSketch
-                ' Phase 12: resolve via BoundarySourceService
-                project = ResolveFromNamedSketch(
-                    projectName, namedLookup.SketchName, boundaryService)
+            Trace.TraceInformation(": HMG: Boundary source — project=""" &
+                projectName & """, type=" & sourceType.ToString())
 
-            Case BoundarySourceType.SelectedSketch
-                project = ResolveFromSelectedSketch(projectName)
+            Select Case sourceType
+                Case BoundarySourceType.NamedSketch
+                    project = ResolveFromNamedSketch(
+                        projectName, namedLookup.SketchName, boundaryService)
 
-            Case Else
-                ' Future source types not yet implemented
-                MsgBox("The """ & sourceType.ToString() &
-                       """ boundary source is not yet available." & vbCrLf &
-                       "Please use one of the available options.",
-                       MsgBoxStyle.Information,
-                       "Metal Bar Grating")
-                Return
-        End Select
+                Case BoundarySourceType.SelectedSketch
+                    project = ResolveFromSelectedSketch(projectName)
 
-        If project Is Nothing Then Return
+                Case Else
+                    MsgBox("The """ & sourceType.ToString() &
+                           """ boundary source is not yet available." & vbCrLf &
+                           "Please use one of the available options.",
+                           MsgBoxStyle.Information,
+                           "Metal Bar Grating")
+                    Return
+            End Select
+
+            If project IsNot Nothing Then Exit Do
+
+            ' Perimeter extraction failed — offer boundary step again
+            Trace.TraceInformation(
+                ": HMG: Perimeter resolution failed — returning to boundary source.")
+        Loop
         LastProject = project
 
         Trace.TraceInformation(": HMG: Project created — " & project.ToString())
@@ -392,7 +444,8 @@ Public Class GratingCommand
 
         Dim bandBarGen As New BandBarGenerator(_app)
         project.BandBarResult = bandBarGen.Generate(
-            project.Perimeter, project.Parameters)
+            project.Perimeter, project.Parameters,
+            project.LayoutResult.EliminatedBandBarEdges)
 
         If project.BandBarResult.Skipped Then
             Trace.TraceInformation(
@@ -713,6 +766,77 @@ Public Class GratingCommand
             RemoveHandler _buttonDefinition.OnExecute, AddressOf OnExecute
             _buttonDefinition = Nothing
         End If
+        If _viewSummaryButton IsNot Nothing Then
+            RemoveHandler _viewSummaryButton.OnExecute, AddressOf OnViewSummaryExecute
+            _viewSummaryButton = Nothing
+        End If
+        If DockPanel IsNot Nothing Then
+            DockPanel.SummaryAvailabilityChanged = Nothing
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Click handler for the "View Generation Summary" ribbon button.
+    ''' If a summary is cached for the active assembly, delegates to the
+    ''' dockable window manager to re-open it (re-materializing the
+    ''' dockable window if needed).  If no summary has been generated
+    ''' yet, shows a friendly message.
+    ''' </summary>
+    Private Sub OnViewSummaryExecute(context As NameValueMap)
+        Try
+            Trace.TraceInformation(
+                ": HMG: View Generation Summary command executed.")
+            If DockPanel Is Nothing Then Return
+
+            If DockPanel.HasCachedSummaryForActiveDoc Then
+                DockPanel.RestoreCurrentDocSummary()
+            Else
+                System.Windows.Forms.MessageBox.Show(
+                    "No grating has been generated in this assembly yet." & vbCrLf &
+                    "Use 'Create Grating' first.",
+                    "Metal Bar Grating",
+                    System.Windows.Forms.MessageBoxButtons.OK,
+                    System.Windows.Forms.MessageBoxIcon.Information)
+            End If
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG: View Generation Summary failed — " & ex.Message)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Refreshes both ribbon buttons' enabled state from the dockable
+    ''' window manager:
+    '''   • Create Grating         — enabled in Part docs only
+    '''     (greyed in Assembly / Drawing / Home).
+    '''   • Generation Summary    — enabled in Assembly docs that carry
+    '''     the "Metal Bar Grating" iProperty marker (= produced by
+    '''     this add-in); greyed elsewhere.
+    ''' Invoked via callback whenever the active doc / environment may
+    ''' have changed.
+    ''' </summary>
+    Private Sub UpdateButtonsEnabled()
+        Try
+            If _buttonDefinition IsNot Nothing Then
+                Dim enableCreate As Boolean =
+                    DockPanel IsNot Nothing AndAlso
+                    DockPanel.CanCreateGrating
+                If _buttonDefinition.Enabled <> enableCreate Then
+                    _buttonDefinition.Enabled = enableCreate
+                End If
+            End If
+            If _viewSummaryButton IsNot Nothing Then
+                Dim enableSummary As Boolean =
+                    DockPanel IsNot Nothing AndAlso
+                    DockPanel.CanShowGenerationSummary
+                If _viewSummaryButton.Enabled <> enableSummary Then
+                    _viewSummaryButton.Enabled = enableSummary
+                End If
+            End If
+        Catch ex As Exception
+            Trace.TraceWarning(
+                ": HMG: UpdateButtonsEnabled failed — " & ex.Message)
+        End Try
     End Sub
 
     ''' <summary>

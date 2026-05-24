@@ -34,6 +34,36 @@ Public Class BearingBarLayoutResult
     ''' <summary>On-center spacing that was applied (inches).</summary>
     Public Property AppliedSpacing As Double
 
+    ''' <summary>
+    ''' Perimeter edges (identified by the {x,y} pair of their two
+    ''' endpoints) whose band bar was eliminated by the galvanize-gap
+    ''' rule.  These edges must be skipped by the band bar generator so
+    ''' the assembly does not double up a band bar against the bearing
+    ''' bar / cross bar that the rule chose to keep.  See
+    ''' BearingBarLayoutService.ApplyMinGalvanizeGap for the rule.
+    '''
+    ''' Each entry is {ax, ay, bx, by}.  Match by coordinate so the list
+    ''' is robust to whether the polygon vertex list is closed or open.
+    ''' </summary>
+    Public Property EliminatedBandBarEdges As List(Of Double())
+
+    ''' <summary>
+    ''' Span-axis coordinates of cross bar positions that were eliminated
+    ''' by the galvanize-gap rule (cross bar landing within 1/4" of a
+    ''' perpendicular notch-wall band bar).  Cross bar generation must
+    ''' skip these positions.
+    ''' </summary>
+    Public Property EliminatedCrossBarPositions As List(Of Double)
+
+    ''' <summary>
+    ''' Number of distinct lateral scan positions used (after the galvanize-
+    ''' gap filter).  At a polygon notch each position may produce two or
+    ''' more <see cref="TrimmedBearingBar"/> segments; <see cref="Bars"/>.Count
+    ''' reports those segments (= fabrication pieces), whereas this property
+    ''' reports the count the user sees on a design drawing.
+    ''' </summary>
+    Public Property UniqueLateralPositions As Integer
+
     ' --- Factory helpers ---
 
     Public Shared Function Succeeded(bars As List(Of TrimmedBearingBar),
@@ -41,7 +71,10 @@ Public Class BearingBarLayoutResult
                                      spacing As Double,
                                      boundsMin As Double(),
                                      boundsMax As Double(),
-                                     warnings As List(Of String)) As BearingBarLayoutResult
+                                     warnings As List(Of String),
+                                     Optional eliminatedEdges As List(Of Double()) = Nothing,
+                                     Optional eliminatedCrossBarPositions As List(Of Double) = Nothing,
+                                     Optional uniqueLateralPositions As Integer = 0) As BearingBarLayoutResult
         Return New BearingBarLayoutResult With {
             .Success = True,
             .Bars = bars,
@@ -49,7 +82,10 @@ Public Class BearingBarLayoutResult
             .AppliedSpacing = spacing,
             .BoundsMin = boundsMin,
             .BoundsMax = boundsMax,
-            .Warnings = If(warnings, New List(Of String))
+            .Warnings = If(warnings, New List(Of String)),
+            .EliminatedBandBarEdges = If(eliminatedEdges, New List(Of Double())),
+            .EliminatedCrossBarPositions = If(eliminatedCrossBarPositions, New List(Of Double)),
+            .UniqueLateralPositions = uniqueLateralPositions
         }
     End Function
 
@@ -58,7 +94,10 @@ Public Class BearingBarLayoutResult
             .Success = False,
             .ErrorMessage = message,
             .Bars = New List(Of TrimmedBearingBar),
-            .Warnings = New List(Of String)
+            .Warnings = New List(Of String),
+            .EliminatedBandBarEdges = New List(Of Double()),
+            .EliminatedCrossBarPositions = New List(Of Double),
+            .UniqueLateralPositions = 0
         }
     End Function
 
@@ -70,7 +109,13 @@ Public Class BearingBarLayoutResult
         sb.AppendLine("Bearing Bar Layout Summary")
         sb.AppendLine("——————————————————————————")
         sb.AppendLine("Span direction : " & SpanDirection.ToString())
-        sb.AppendLine("Bars generated : " & Bars.Count)
+        If UniqueLateralPositions > 0 AndAlso
+           UniqueLateralPositions <> Bars.Count Then
+            sb.AppendLine("Bearing bars   : " & UniqueLateralPositions &
+                          " (positions) · " & Bars.Count & " pieces")
+        Else
+            sb.AppendLine("Bearing bars   : " & Bars.Count)
+        End If
         sb.AppendLine("On-center spacing: " & AppliedSpacing.ToString("F4") & " in")
         sb.AppendLine("Bounds min     : (" & BoundsMin(0).ToString("F4") & ", " & BoundsMin(1).ToString("F4") & ")")
         sb.AppendLine("Bounds max     : (" & BoundsMax(0).ToString("F4") & ", " & BoundsMax(1).ToString("F4") & ")")

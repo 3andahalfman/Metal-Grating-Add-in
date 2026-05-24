@@ -165,7 +165,10 @@ Public Class BearingBarPartGenerator
             Trace.TraceInformation(": HMG PartGen: Complete — " &
                 savedCount & "/" & files.Count & " files saved.")
 
-            Return BearingBarGenerationResult.Succeeded(files, outputFolder, warnings)
+            Return BearingBarGenerationResult.Succeeded(
+                files, outputFolder, warnings,
+                layout.UniqueLateralPositions,
+                layout.SpanDirection)
 
         Catch ex As Exception
             Trace.TraceError(": HMG PartGen: Unexpected error — " & ex.ToString())

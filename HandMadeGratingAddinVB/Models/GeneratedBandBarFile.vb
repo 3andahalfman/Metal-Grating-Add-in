@@ -25,6 +25,12 @@ Public Class GeneratedBandBarFile
     ''' <summary>End point of the perimeter edge {X, Y} in inches.</summary>
     Public Property EndPoint As Double()
 
+    ''' <summary>
+    ''' Polygon winding sign (+1 CCW, -1 CW). Used at assembly placement so
+    ''' the outer face lands on the perimeter for both sketch windings.
+    ''' </summary>
+    Public Property PerpSign As Double
+
     ''' <summary>Full path of the saved .ipt file.</summary>
     Public Property FilePath As String
 
@@ -36,6 +42,13 @@ Public Class GeneratedBandBarFile
 
     ''' <summary>Error message if Saved is False.</summary>
     Public Property ErrorMessage As String
+
+    ''' <summary>
+    ''' Non-fatal warning emitted during generation even when
+    ''' <see cref="Saved"/> is True (e.g. when the mitered profile was
+    ''' rejected and the bar was generated as a plain rectangle).
+    ''' </summary>
+    Public Property WarningMessage As String
 
     ''' <summary>True if this band bar is a curved arc bar.</summary>
     Public Property IsArc As Boolean

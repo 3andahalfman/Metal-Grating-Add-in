@@ -1,6 +1,6 @@
 is_global = true
 build_property.RootNamespace = HandMadeGratingAddinVB
-build_property.ProjectDir = C:\Users\emera\OneDrive\Documents\Addin\HandMadeGratingAddin\HandMadeGratingAddinVB\
+build_property.ProjectDir = C:\Users\emera\Desktop\Metal-Grating-Add-in\HandMadeGratingAddinVB\
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 
 build_property.CsWinRTUseWindowsUIXamlProjections = false

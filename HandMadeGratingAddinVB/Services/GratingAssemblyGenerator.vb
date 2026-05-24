@@ -212,6 +212,19 @@ Public Class GratingAssemblyGenerator
                     "No bearing bars could be inserted into the assembly.")
             End If
 
+            ' Stamp the assembly with a custom iProperty so the add-in
+            ' can later identify this .iam as a grating-plugin output.
+            ' The Generation Summary ribbon button uses this to decide
+            ' whether to enable when the user activates the assembly.
+            Try
+                StampGratingMarker(asmDoc, params, inserted,
+                                   crossBarsInserted, bandBarsInserted)
+            Catch ex As Exception
+                Trace.TraceWarning(
+                    ": HMG Assembly: Could not stamp grating marker — " &
+                    ex.Message)
+            End Try
+
             ' Save the assembly
             Try
                 asmDoc.SaveAs(assemblyPath, False)
@@ -346,11 +359,24 @@ Public Class GratingAssemblyGenerator
 
         ElseIf params.SpanDirection = SpanDirectionType.AlongY Then
             ' Cross bars run along X (lateral axis).
-            ' Rotate +90° around Y to map part +Z → assembly +X.
-            matrix.SetToRotation(
-                Math.PI / 2.0,
-                tg.CreateVector(0, 1, 0),
-                tg.CreatePoint(0, 0, 0))
+            ' Required axis mapping so flat bars stand on edge (thickness
+            ' across the bearing bar slot, height vertical):
+            '   Part +X (thickness) → Asm +Y
+            '   Part +Y (height)    → Asm +Z (vertical)
+            '   Part +Z (length)    → Asm +X
+            ' This is the cyclic permutation X→Y→Z→X, not a single-axis
+            ' rotation, so we set the rotation cells directly.
+            matrix.Cell(1, 1) = 0  ' Part X → Asm X
+            matrix.Cell(2, 1) = 1  ' Part X → Asm Y
+            matrix.Cell(3, 1) = 0  ' Part X → Asm Z
+
+            matrix.Cell(1, 2) = 0  ' Part Y → Asm X
+            matrix.Cell(2, 2) = 0  ' Part Y → Asm Y
+            matrix.Cell(3, 2) = 1  ' Part Y → Asm Z
+
+            matrix.Cell(1, 3) = 1  ' Part Z → Asm X
+            matrix.Cell(2, 3) = 0  ' Part Z → Asm Y
+            matrix.Cell(3, 3) = 0  ' Part Z → Asm Z
 
             Dim txCm As Double = entry.LateralMin * 2.54
             Dim tyCm As Double = entry.AbsolutePosition * 2.54
@@ -414,6 +440,9 @@ Public Class GratingAssemblyGenerator
         Dim px As Double = -ey
         Dim py As Double = ex
 
+        ' +1 CCW / -1 CW — must match BandBarGenerator.ComputeSegments
+        Dim perpSign As Double = If(bbFile.PerpSign = 0, 1.0, bbFile.PerpSign)
+
         ' Convert to cm
         Dim halfWidthCm As Double = (params.BarWidth / 2.0) * 2.54
         Dim startXCm As Double = bbFile.StartPoint(0) * 2.54
@@ -421,25 +450,24 @@ Public Class GratingAssemblyGenerator
 
         ' Rotation:
         '   Part +X → (ex, ey, 0)  along edge (length)
-        '   Part +Y → (px, py, 0)  perpendicular (width)
+        '   Part +Y → perpSign*(px, py, 0)  width toward polygon interior
         '   Part +Z → (0,  0,  1)  upright (depth)
         matrix.Cell(1, 1) = ex   ' Part X → Asm X
         matrix.Cell(2, 1) = ey   ' Part X → Asm Y
         matrix.Cell(3, 1) = 0    ' Part X → Asm Z
 
-        matrix.Cell(1, 2) = px   ' Part Y → Asm X
-        matrix.Cell(2, 2) = py   ' Part Y → Asm Y
+        matrix.Cell(1, 2) = perpSign * px   ' Part Y → Asm X
+        matrix.Cell(2, 2) = perpSign * py   ' Part Y → Asm Y
         matrix.Cell(3, 2) = 0    ' Part Y → Asm Z
 
         matrix.Cell(1, 3) = 0    ' Part Z → Asm X
         matrix.Cell(2, 3) = 0    ' Part Z → Asm Y
         matrix.Cell(3, 3) = 1    ' Part Z → Asm Z
 
-        ' Translation: the segment coordinates are pre-inset by halfWidth
-        ' toward the polygon interior.  Combined with the -halfWidth * perp
-        ' offset here, the bar outer face lands exactly on the perimeter edge.
-        matrix.Cell(1, 4) = startXCm - halfWidthCm * px
-        matrix.Cell(2, 4) = startYCm - halfWidthCm * py
+        ' StartPoint is on the bar centerline (inset by perpSign*halfWidth
+        ' from the perimeter edge).  Move back to the outer-face origin.
+        matrix.Cell(1, 4) = startXCm - perpSign * halfWidthCm * px
+        matrix.Cell(2, 4) = startYCm - perpSign * halfWidthCm * py
         matrix.Cell(3, 4) = 0
 
         Return matrix
@@ -504,5 +532,63 @@ Public Class GratingAssemblyGenerator
         If result.Length = 0 Then Return "Grating"
         Return result.ToString()
     End Function
+
+    ''' <summary>
+    ''' Property set name for the grating marker iProperty bundle.
+    ''' Public so other services (e.g. DockableWindowManager) can read
+    ''' the same set without depending on a private constant.
+    ''' </summary>
+    Public Const HmgPropertySetName As String = "Metal Bar Grating"
+
+    ''' <summary>
+    ''' Sentinel property name within <see cref="HmgPropertySetName"/>.
+    ''' Presence of this property on an assembly is the unique signal
+    ''' that the file was produced by this add-in (and that a grating
+    ''' summary can be re-shown for it).
+    ''' </summary>
+    Public Const HmgMarkerPropertyName As String = "HMG_Type"
+
+    ''' <summary>
+    ''' Stamps the assembly document with a custom iProperty set that
+    ''' uniquely identifies it as a Metal Bar Grating output.  Used by
+    ''' <see cref="DockableWindowManager.CanShowGenerationSummary"/> so
+    ''' the ribbon's Generation Summary button is enabled only for
+    ''' assemblies actually created by this plugin (not every assembly
+    ''' the user happens to be working on).
+    ''' </summary>
+    Private Sub StampGratingMarker(asmDoc As AssemblyDocument,
+                                    params As GratingParameters,
+                                    bearingBarsInserted As Integer,
+                                    crossBarsInserted As Integer,
+                                    bandBarsInserted As Integer)
+        Dim propSets As PropertySets = asmDoc.PropertySets
+        Dim hmgSet As PropertySet = Nothing
+        Try
+            hmgSet = propSets.Item(HmgPropertySetName)
+        Catch
+            hmgSet = propSets.Add(HmgPropertySetName)
+        End Try
+
+        SetOrAddProperty(hmgSet, HmgMarkerPropertyName, "GratingAssembly")
+        SetOrAddProperty(hmgSet, "HMG_Prefix",
+                         If(params.ResolvedPrefix, "Grating"))
+        SetOrAddProperty(hmgSet, "HMG_BearingBars", bearingBarsInserted.ToString())
+        SetOrAddProperty(hmgSet, "HMG_CrossBars", crossBarsInserted.ToString())
+        SetOrAddProperty(hmgSet, "HMG_BandBars", bandBarsInserted.ToString())
+        SetOrAddProperty(hmgSet, "HMG_StampedUtc",
+                         DateTime.UtcNow.ToString("o"))
+    End Sub
+
+    ''' <summary>
+    ''' Sets a property in the given set, creating it if absent.
+    ''' </summary>
+    Private Sub SetOrAddProperty(propSet As PropertySet,
+                                  name As String, value As String)
+        Try
+            propSet.Item(name).Value = value
+        Catch
+            propSet.Add(value, name)
+        End Try
+    End Sub
 
 End Class

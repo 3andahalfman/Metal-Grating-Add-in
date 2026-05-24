@@ -303,24 +303,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\emera\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "C:\\Users\\emera\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\DebugPluginLocally.csproj",
+      "projectUniqueName": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\DebugPluginLocally\\DebugPluginLocally.csproj",
       "projectName": "DebugPluginLocally",
-      "projectPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\DebugPluginLocally.csproj",
+      "projectPath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\DebugPluginLocally\\DebugPluginLocally.csproj",
       "packagesPath": "C:\\Users\\emera\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\DebugPluginLocally\\obj\\",
+      "outputPath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\DebugPluginLocally\\obj\\",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
         "C:\\Users\\emera\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -332,11 +327,10 @@
       },
       "frameworks": {
         "net8.0-windows7.0": {
-          "framework": "net8.0-windows7.0",
           "targetAlias": "net8.0-windows",
           "projectReferences": {
-            "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj": {
-              "projectPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj"
+            "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj": {
+              "projectPath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj"
             }
           }
         }
@@ -355,7 +349,6 @@
     },
     "frameworks": {
       "net8.0-windows7.0": {
-        "framework": "net8.0-windows7.0",
         "targetAlias": "net8.0-windows",
         "dependencies": {
           "Microsoft.CSharp": {
@@ -405,7 +398,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.202/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

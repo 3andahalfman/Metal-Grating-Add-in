@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "YrdJrMZ5Y4Q=",
+  "dgSpecHash": "2UqGxwmiK+g=",
   "success": true,
-  "projectFilePath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\Interaction.csproj",
+  "projectFilePath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\Interaction\\Interaction.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\emera\\.nuget\\packages\\autodesk.authentication\\2.0.0\\autodesk.authentication.2.0.0.nupkg.sha512",
     "C:\\Users\\emera\\.nuget\\packages\\autodesk.forge.core\\4.1.1\\autodesk.forge.core.4.1.1.nupkg.sha512",

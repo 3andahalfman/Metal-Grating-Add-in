@@ -20,6 +20,17 @@ Public Class BearingBarLayoutService
     Private Const Tolerance As Double = 0.0001 ' inches
 
     ''' <summary>
+    ''' Extra slack when deciding if a perimeter wall lies on the panel
+    ''' bounding box (outer frame). DWG/import noise can leave edges
+    ''' slightly off exact latMin/latMax; a too-tight tolerance mis-tagged
+    ''' outer bands as notch walls, so the gap rule eliminated them and
+    ''' band parts were never generated.
+    ''' 0.02" (~0.5 mm) plus a small fraction of panel span covers typical
+    ''' sketch/translation error without swallowing real interior notch walls.
+    ''' </summary>
+    Private Const OuterBBoxEpsilonInches As Double = 0.02
+
+    ''' <summary>
     ''' Minimum allowed edge-to-edge gap between two bars, in inches.
     ''' Gaps below this value cannot be reliably hot-dip galvanized
     ''' (zinc bridges across the gap and traps debris).  Any bar that
@@ -83,34 +94,84 @@ Public Class BearingBarLayoutService
             ' filter below can append before scan/clip starts).
             Dim warnings As New List(Of String)
 
-            ' Generate scan positions centered within the perimeter bounds
-            Dim positions As List(Of Double)
+            ' Eliminated edge / cross bar trackers populated by the gap rule.
+            Dim eliminatedEdges As New List(Of Double())
+            Dim eliminatedCrossBarPositions As New List(Of Double)
 
-            If params.Banding = BandingOptionType.Banded Then
-                ' Banded mode: band bars sit at latMin and latMax, replacing
-                ' the first and last bearing bars. The remaining bearing bars
-                ' are centered between the two band bars so that the edge gap
-                ' (band bar to nearest bearing bar) is equal on both sides.
-                ' The on-center spacing between bearing bars is preserved.
-                positions = GenerateBandedScanPositions(
-                    latMin, latMax, params.OnCenterSpacing)
-            Else
-                positions = GenerateScanPositions(
-                    latMin, latMax, params.OnCenterSpacing)
-            End If
+            ' Generate scan positions.  Both banded and non-banded modes
+            ' place the outermost bearing bars FLUSH with the panel lateral
+            ' edges (outer face on latMin / latMax).  Band bars only exist
+            ' at the SPAN ends (top/bottom of the panel) — the outer bearing
+            ' bars themselves form the lateral side edges, so no separate
+            ' band bar is needed at latMin or latMax.  This was the design
+            ' established in v1.4.1 and is what the user expects.
+            Dim positions As List(Of Double) = GenerateScanPositions(
+                latMin, latMax, params.OnCenterSpacing, params.BarWidth)
 
             ' Galvanize gap rule: drop any bearing bar that would sit within
             ' MinGalvanizeGap of an adjacent bar (or band bar in banded
-            ' mode).  See ApplyMinGalvanizeGap for details.
+            ' mode).  Notch-wall band bars are themselves eliminated per the
+            ' "band bar is eliminated and cut is enlarged to the next closest
+            ' bearing bar" rule (see ApplyMinGalvanizeGap for details).
             Dim positionsBefore As Integer = positions.Count
             positions = ApplyMinGalvanizeGap(
                 positions, params.BarWidth, lateralIdx, spanIdx,
-                poly, params.Banding)
+                poly, params.Banding, latMin, latMax, eliminatedEdges)
             If positions.Count <> positionsBefore Then
                 warnings.Add(
                     (positionsBefore - positions.Count).ToString() &
                     " bar(s) removed — galvanize gap rule (< " &
                     MinGalvanizeGap.ToString("F2") & """ between bars).")
+            End If
+
+            ' Inner notch-wall rule (per the user's PDF spec, v1.5.11):
+            ' For each parallel-to-span notch wall, measure the lateral
+            ' distance from the cut line (the wall's perimeter coord) to
+            ' the nearest *kept* bearing bar centerline.  When that
+            ' distance is < MinGalvanizeGap (1/4"), the wall band bar is
+            ' eliminated; the next-closest bearing bar stands in as the
+            ' wall.  When the distance is ≥ 1/4", the wall band bar is
+            ' added (BandBarGenerator emits the segment).  This is
+            ' simpler and more lenient than the symmetric edge-to-edge
+            ' rule applied in ApplyMinGalvanizeGap to outer band bars.
+            If params.Banding = BandingOptionType.Banded AndAlso
+               poly IsNot Nothing Then
+                Dim wallsEliminatedBefore As Integer = eliminatedEdges.Count
+                ApplyInnerWallEliminationRule(
+                    poly, positions, lateralIdx, params.BarWidth,
+                    latMin, latMax, eliminatedEdges)
+                Dim wallsEliminated As Integer =
+                    eliminatedEdges.Count - wallsEliminatedBefore
+                If wallsEliminated > 0 Then
+                    warnings.Add(
+                        wallsEliminated.ToString() &
+                        " inner-notch-wall band bar(s) eliminated — " &
+                        "cut line within " &
+                        MinGalvanizeGap.ToString("F2") &
+                        """ of a bearing bar.")
+                End If
+            End If
+
+            ' Perpendicular-axis galvanize-gap rule: cross-bar vs perpendicular
+            ' notch-wall band bar.  Applies the same "eliminate band bar and
+            ' enlarge cut" rule symmetrically along the span axis.
+            Dim eliminatedEdgesBefore As Integer = eliminatedEdges.Count
+            If params.Banding = BandingOptionType.Banded AndAlso
+               params.CrossBarOnCenter > 0 Then
+                ApplyPerpendicularGap(poly, params, latMin, latMax,
+                                      lateralIdx, spanIdx,
+                                      eliminatedEdges,
+                                      eliminatedCrossBarPositions)
+                Dim perpEliminated As Integer =
+                    eliminatedEdges.Count - eliminatedEdgesBefore
+                If perpEliminated > 0 Then
+                    warnings.Add(
+                        perpEliminated.ToString() &
+                        " perpendicular wall band bar(s) eliminated — " &
+                        "galvanize gap rule (< " &
+                        MinGalvanizeGap.ToString("F2") &
+                        """ to cross bar).")
+                End If
             End If
 
             Trace.TraceInformation(": HMG Layout: " & positions.Count &
@@ -219,7 +280,9 @@ Public Class BearingBarLayoutService
 
             Return BearingBarLayoutResult.Succeeded(
                 bars, params.SpanDirection, params.OnCenterSpacing,
-                boundsMin, boundsMax, warnings)
+                boundsMin, boundsMax, warnings,
+                eliminatedEdges, eliminatedCrossBarPositions,
+                positions.Count)
 
         Catch ex As Exception
             Trace.TraceError(": HMG Layout: Unexpected error — " & ex.ToString())
@@ -231,70 +294,57 @@ Public Class BearingBarLayoutService
 #Region "Scan position generation"
 
     ''' <summary>
-    ''' Generates evenly-spaced scan positions centered within [latMin, latMax].
-    ''' First bar is placed at half-spacing inset from the boundary, then at
-    ''' on-center intervals until the opposite boundary is reached.
+    ''' Generates bearing bar positions with the outermost bars FLUSH at
+    ''' the panel lateral edges — i.e. the first bar's outer face sits
+    ''' on <paramref name="latMin"/> and the last bar's outer face sits
+    ''' on <paramref name="latMax"/>.  In banded mode the outer bearing
+    ''' bars themselves form the lateral side edges of the panel; band
+    ''' bars only exist at the SPAN ends (top/bottom).
+    '''
+    ''' Nominal count: N = round(innerSpan / spacing) + 1, where
+    ''' innerSpan = latMax − latMin − barWidth (center-to-center distance
+    ''' between the two flush outer bars).  N is reduced if any adjacent
+    ''' edge-to-edge gap would fall below MinGalvanizeGap (¼").
     ''' </summary>
     Private Function GenerateScanPositions(latMin As Double,
                                            latMax As Double,
-                                           spacing As Double) As List(Of Double)
+                                           spacing As Double,
+                                           barWidth As Double) As List(Of Double)
         Dim positions As New List(Of Double)
+        Dim half As Double = barWidth / 2.0
 
-        ' Inset the first bar by half the spacing from the minimum edge
-        Dim first As Double = latMin + (spacing / 2.0)
+        ' Center-to-center distance between the two flush outer bars.
+        Dim innerSpan As Double = latMax - latMin - barWidth
 
-        Dim pos As Double = first
-        Do While pos < latMax - Tolerance
-            positions.Add(pos)
-            pos += spacing
-        Loop
+        If innerSpan < -Tolerance Then Return positions
 
-        Return positions
-    End Function
-
-    ''' <summary>
-    ''' Generates bearing bar positions for banded grating.
-    '''
-    ''' Band bars sit at the perimeter edges (latMin and latMax),
-    ''' replacing the outermost bearing bars. Bearing bars are placed
-    ''' at exactly one on-center spacing from the near band bar and
-    ''' continue at OC intervals. The spacing is adjusted slightly so
-    ''' that bars are evenly distributed between both band bars.
-    ''' </summary>
-    Private Function GenerateBandedScanPositions(latMin As Double,
-                                                  latMax As Double,
-                                                  spacing As Double) As List(Of Double)
-        Dim positions As New List(Of Double)
-        Dim totalSpan As Double = latMax - latMin
-
-        If totalSpan < spacing * 2 Then
-            ' Span is too narrow for any bearing bars between the band bars.
-            Trace.TraceInformation(
-                ": HMG Layout: Banded — span (" &
-                totalSpan.ToString("F4") &
-                """) too narrow for bearing bars between band bars.")
+        ' Only one bar fits (panel too narrow for two flush bars).
+        If innerSpan < Tolerance Then
+            positions.Add((latMin + latMax) / 2.0)
             Return positions
         End If
 
-        ' Determine the number of bearing bars between the two band bars.
-        ' We want N bars such that (N+1) even spaces fill the total span.
-        ' N = round(totalSpan/spacing) - 1  gives the closest integer
-        ' count to the requested OC.
-        Dim N As Integer = CInt(Math.Round(totalSpan / spacing)) - 1
-        If N < 1 Then N = 1
+        Dim N As Integer = Math.Max(1, CInt(Math.Round(innerSpan / spacing)) + 1)
 
-        ' Compute the actual spacing so all gaps (including edge gaps
-        ' from band bar to nearest bearing bar) are exactly equal.
-        Dim actualSpacing As Double = totalSpan / CDbl(N + 1)
+        ' Reduce N until every adjacent edge-to-edge gap meets MinGalvanizeGap.
+        Do While N >= 2
+            Dim actualSpacing As Double = innerSpan / CDbl(N - 1)
+            If actualSpacing - barWidth >= MinGalvanizeGap - Tolerance Then Exit Do
+            N -= 1
+            Trace.TraceInformation(
+                ": HMG Layout: Bar-to-bar gap too small, reducing to N=" & N)
+        Loop
+
+        Dim finalSpacing As Double = If(N > 1, innerSpan / CDbl(N - 1), 0.0)
 
         Trace.TraceInformation(
-            ": HMG Layout: Banded — " & N & " bearing bars, " &
+            ": HMG Layout: " & N & " bearing bars, " &
             "requestedOC=" & spacing.ToString("F4") &
-            """, actualOC=" & actualSpacing.ToString("F4") &
-            """, span=" & totalSpan.ToString("F4") & """")
+            """, actualOC=" & finalSpacing.ToString("F4") &
+            """, innerSpan=" & innerSpan.ToString("F4") & """")
 
-        For i As Integer = 1 To N
-            positions.Add(latMin + CDbl(i) * actualSpacing)
+        For i As Integer = 0 To N - 1
+            positions.Add(latMin + half + CDbl(i) * finalSpacing)
         Next
 
         Return positions
@@ -308,15 +358,16 @@ Public Class BearingBarLayoutService
     '''
     ''' Hot-dip galvanizing requires every gap between adjacent bars to
     ''' be at least 0.25"; smaller gaps trap zinc and produce defective
-    ''' parts.  Common scenarios where this rule fires:
-    '''   • Banded mode + a notch/cutout whose walls are parallel to the
-    '''     bearing bars — the wall becomes a band bar that lands very
-    '''     close to a regular bearing bar at a standard scan position.
-    '''   • Banded mode with a tight totalSpan / N ratio.
-    '''
-    ''' Band bars are treated as fixed (cannot be removed) since they
-    ''' are structural perimeter framing.  Bearing bars are removed
-    ''' wherever they would conflict.
+    ''' parts.  Outer-perimeter band bars (along the bounding-box
+    ''' latMin / latMax edges) are immovable — they are structural
+    ''' framing of the panel.  Notch-wall band bars (parallel-to-span
+    ''' edges anywhere else on the perimeter) follow the PDF rule:
+    ''' when one would land within MinGalvanizeGap of a bearing bar,
+    ''' the band bar is eliminated and the cut is treated as enlarged
+    ''' to the next closest bearing bar — so the conflicting bearing
+    ''' bar is also dropped, and the edge is recorded in
+    ''' <paramref name="eliminatedEdges"/> so the band-bar generator
+    ''' skips producing a part for that wall.
     ''' </summary>
     Private Function ApplyMinGalvanizeGap(
             positions As List(Of Double),
@@ -324,7 +375,10 @@ Public Class BearingBarLayoutService
             lateralIdx As Integer,
             spanIdx As Integer,
             polygon As List(Of Double()),
-            banding As BandingOptionType) As List(Of Double)
+            banding As BandingOptionType,
+            latMin As Double,
+            latMax As Double,
+            eliminatedEdges As List(Of Double())) As List(Of Double)
 
         If positions Is Nothing OrElse positions.Count = 0 Then
             Return positions
@@ -332,27 +386,42 @@ Public Class BearingBarLayoutService
 
         Dim minCenterDist As Double = barWidth + MinGalvanizeGap
 
-        ' Build a candidate list including band bars (in banded mode),
-        ' tagged so band bars cannot be removed.
+        ' Build a candidate list.  Only OUTER-perimeter band bars are
+        ' candidates here — they protect bearing bars and so participate
+        ' in the BB-vs-band conflict resolution.  Inner notch-wall band
+        ' bars are evaluated in a separate pass below using the user's
+        ' rule (cut-line to nearest bearing-bar centerline < 1/4").
         Dim candidates As New List(Of Candidate)
         If banding = BandingOptionType.Banded AndAlso polygon IsNot Nothing Then
-            For Each bp As Double In FindParallelEdgeBandBarPositions(
+            Dim wallCandidates As List(Of WallBandBar) =
+                FindParallelEdgeBandBarPositions(
                     polygon, lateralIdx, spanIdx, barWidth)
-                candidates.Add(New Candidate(bp, True))
+            For Each wb In wallCandidates
+                Dim isOuter As Boolean =
+                    IsOuterPerimeterBandBar(wb, lateralIdx, barWidth, latMin, latMax)
+                If Not isOuter Then Continue For
+                candidates.Add(New Candidate(wb.Position, True, isOuter, wb.Edge))
+                Trace.TraceInformation(
+                    ": HMG Layout: Outer wall band-bar candidate at lat=" &
+                    wb.Position.ToString("F4") & ".")
             Next
         End If
         For Each p As Double In positions
-            candidates.Add(New Candidate(p, False))
+            candidates.Add(New Candidate(p, False, False, Nothing))
         Next
 
         ' Stable-sort by lateral position
         candidates.Sort(Function(a, b) a.Position.CompareTo(b.Position))
 
         ' Single linear walk — for each adjacent pair within minCenterDist,
-        ' remove one.  Band bars cannot be removed; if both candidates in
-        ' a conflicting pair are bearing bars, drop the latter (so the
-        ' kept bar stays closer to its neighbor on the other side).
+        ' decide what to drop.
+        '   • Bearing bar vs bearing bar  -> drop the latter
+        '   • Bearing bar vs outer band   -> drop the bearing bar
+        '   • Bearing bar vs notch band   -> drop the bearing bar AND
+        '                                    eliminate the notch band bar
+        '   • Outer vs outer band         -> keep both (geometric edge)
         Dim removed As New HashSet(Of Integer)
+        Dim eliminatedIdx As New HashSet(Of Integer)
         Dim lastKept As Integer = 0
         For i As Integer = 1 To candidates.Count - 1
             Dim prev As Candidate = candidates(lastKept)
@@ -360,21 +429,46 @@ Public Class BearingBarLayoutService
             Dim centerDist As Double = cur.Position - prev.Position
 
             If centerDist < minCenterDist - Tolerance Then
-                If Not cur.IsBandBar Then
-                    ' Drop the current bearing bar.
+                ' Identify the bearing bar / band bar in this conflict pair.
+                Dim bearingIdx As Integer = -1
+                Dim bandIdx As Integer = -1
+                If cur.IsBandBar AndAlso Not prev.IsBandBar Then
+                    bearingIdx = lastKept : bandIdx = i
+                ElseIf prev.IsBandBar AndAlso Not cur.IsBandBar Then
+                    bearingIdx = i : bandIdx = lastKept
+                End If
+
+                If bearingIdx >= 0 AndAlso bandIdx >= 0 Then
+                    ' Bearing-bar vs band-bar conflict.
+                    If candidates(bandIdx).IsOuterBand Then
+                        ' Outer-perimeter band bar (panel framing) is
+                        ' immovable — drop the bearing bar.
+                        removed.Add(bearingIdx)
+                        lastKept = bandIdx
+                    Else
+                        ' Notch-wall band bar: eliminate the band bar,
+                        ' KEEP the bearing bar.  The cut is treated as
+                        ' enlarged to the bearing bar position, so the
+                        ' bearing bar itself forms the new wall edge.
+                        eliminatedIdx.Add(bandIdx)
+                        lastKept = bearingIdx
+                    End If
+                ElseIf Not cur.IsBandBar Then
+                    ' Bearing vs bearing — drop the latter.
                     removed.Add(i)
-                ElseIf Not prev.IsBandBar Then
-                    ' Current is a band bar (immovable); drop the previous
-                    ' bearing bar and replace lastKept with the band bar.
-                    removed.Add(lastKept)
-                    lastKept = i
                 Else
-                    ' Both are band bars — geometric edge case; keep both.
+                    ' Band vs band (outer/outer geometric edge) — keep both.
                     lastKept = i
                 End If
             Else
                 lastKept = i
             End If
+        Next
+
+        ' Record eliminated notch-wall edges for the band bar generator.
+        For Each idx In eliminatedIdx
+            Dim wbEdge As Double() = candidates(idx).Edge
+            If wbEdge IsNot Nothing Then eliminatedEdges.Add(wbEdge)
         Next
 
         ' Emit only the surviving bearing-bar positions, in order.
@@ -386,10 +480,11 @@ Public Class BearingBarLayoutService
             End If
         Next
 
-        If removed.Count > 0 Then
+        If removed.Count > 0 OrElse eliminatedIdx.Count > 0 Then
             Trace.TraceInformation(
-                ": HMG Layout: Galvanize-gap rule removed " &
-                removed.Count.ToString() & " bar(s); " &
+                ": HMG Layout: Galvanize-gap rule dropped " &
+                removed.Count.ToString() & " bearing bar(s) and eliminated " &
+                eliminatedIdx.Count.ToString() & " notch-wall band bar(s); " &
                 result.Count.ToString() & " bearing bar(s) remain.")
         End If
 
@@ -397,32 +492,176 @@ Public Class BearingBarLayoutService
     End Function
 
     ''' <summary>
-    ''' Internal record used by <see cref="ApplyMinGalvanizeGap"/> to track
-    ''' a candidate bar's lateral position and whether it is a band bar
-    ''' (band bars are structural and may not be removed).
+    ''' User's inner-notch-wall rule (PDF spec, v1.5.11+):
+    ''' For each non-outer parallel-to-span perimeter edge (= an inner
+    ''' notch wall), measure the lateral distance from the cut line
+    ''' (the wall's lateral coord) to the nearest kept bearing-bar
+    ''' centerline.  When that distance is &lt; MinGalvanizeGap (1/4"),
+    ''' the wall's band bar is eliminated (added to <paramref name="eliminatedEdges"/>);
+    ''' the bearing bar at that position takes the wall's role.
+    ''' When the distance is ≥ 1/4", the band bar is kept — BandBarGenerator
+    ''' will emit the segment.
+    '''
+    ''' This is a different measurement from the symmetric edge-to-edge
+    ''' rule in <see cref="ApplyMinGalvanizeGap"/>: the cut-line measure
+    ''' ignores the band bar's own thickness, so a wall and a flush-
+    ''' adjacent bearing bar (centerline at wall + halfWidth) read as
+    ''' ~halfWidth apart, well below the 1/4" threshold — band bar
+    ''' eliminated.  A wall whose nearest bearing bar is a full
+    ''' on-center step away reads as ~OC apart — well above 1/4", band
+    ''' bar kept.
+    ''' </summary>
+    Private Sub ApplyInnerWallEliminationRule(
+            polygon As List(Of Double()),
+            scanPositions As List(Of Double),
+            lateralIdx As Integer,
+            barWidth As Double,
+            latMin As Double,
+            latMax As Double,
+            eliminatedEdges As List(Of Double()))
+
+        If polygon Is Nothing OrElse scanPositions Is Nothing Then Return
+        If scanPositions.Count = 0 Then Return
+
+        Dim spanIdx As Integer = 1 - lateralIdx
+
+        Dim allWalls As List(Of WallBandBar) =
+            FindParallelEdgeBandBarPositions(
+                polygon, lateralIdx, spanIdx, barWidth)
+
+        For Each wb In allWalls
+            Dim isOuter As Boolean =
+                IsOuterPerimeterBandBar(wb, lateralIdx, barWidth, latMin, latMax)
+            If isOuter Then Continue For ' outer band bars handled elsewhere
+
+            Dim wallLat As Double =
+                If(lateralIdx = 0, wb.Edge(0), wb.Edge(1))
+
+            Dim minDist As Double = Double.MaxValue
+            Dim closest As Double = Double.NaN
+            For Each scanPos As Double In scanPositions
+                Dim d As Double = Math.Abs(scanPos - wallLat)
+                If d < minDist Then
+                    minDist = d
+                    closest = scanPos
+                End If
+            Next
+
+            If minDist < MinGalvanizeGap - Tolerance Then
+                eliminatedEdges.Add(wb.Edge)
+                Trace.TraceInformation(
+                    ": HMG Layout: Inner wall eliminated — cut line " &
+                    wallLat.ToString("F4") & " is " &
+                    minDist.ToString("F4") &
+                    """ from bearing bar at " &
+                    closest.ToString("F4") & " (< " &
+                    MinGalvanizeGap.ToString("F2") & """).")
+            Else
+                Trace.TraceInformation(
+                    ": HMG Layout: Inner wall KEPT — cut line " &
+                    wallLat.ToString("F4") & " is " &
+                    minDist.ToString("F4") &
+                    """ from nearest bearing bar at " &
+                    closest.ToString("F4") & " (≥ " &
+                    MinGalvanizeGap.ToString("F2") & """).")
+            End If
+        Next
+    End Sub
+
+    ''' <summary>
+    ''' Internal record used by <see cref="ApplyMinGalvanizeGap"/>.
+    ''' Position = lateral centerline coordinate.  IsBandBar = true for
+    ''' candidates coming from a perimeter edge parallel to the span
+    ''' axis.  IsOuterBand = true only when that edge is on the panel's
+    ''' bounding box (latMin or latMax); outer band bars are immovable.
+    ''' Edge = {ax, ay, bx, by} so the caller can record eliminated
+    ''' notch-wall edges by coordinate.
     ''' </summary>
     Private Structure Candidate
         Public ReadOnly Position As Double
         Public ReadOnly IsBandBar As Boolean
-        Public Sub New(pos As Double, bandBar As Boolean)
+        Public ReadOnly IsOuterBand As Boolean
+        Public ReadOnly Edge As Double()
+        Public Sub New(pos As Double, bandBar As Boolean,
+                       outerBand As Boolean, edge_ As Double())
             Position = pos
             IsBandBar = bandBar
+            IsOuterBand = outerBand
+            Edge = edge_
         End Sub
     End Structure
 
     ''' <summary>
-    ''' Walks the polygon edges and returns the centerline lateral
-    ''' coordinate of every band bar that runs parallel to the bearing
-    ''' bars (i.e. every perimeter edge whose lateral coordinate is
-    ''' constant).  Each such edge becomes a band bar in banded mode,
-    ''' and that band bar can conflict with adjacent bearing bars.
+    ''' One parallel-to-span perimeter edge interpreted as a candidate
+    ''' band bar.  Position is the band bar centerline (offset half a
+    ''' bar width into the polygon material from the wall).  Edge holds
+    ''' {ax, ay, bx, by} of the originating perimeter edge so the gap
+    ''' rule can mark it for elimination.
+    ''' </summary>
+    Private Structure WallBandBar
+        Public ReadOnly Position As Double
+        Public ReadOnly Edge As Double()
+        Public Sub New(pos As Double, edge_ As Double())
+            Position = pos
+            Edge = edge_
+        End Sub
+    End Structure
+
+    ''' <summary>
+    ''' True if a parallel-to-span band wall lies on the panel bounding
+    ''' box in the lateral direction (latMin / latMax framing).
+    ''' Outer band bars are structural and must not be eliminated by the
+    ''' gap rule. Uses <see cref="OuterBBoxEpsilonInches"/> so slightly
+    ''' noisy geometry still classifies as outer.
+    ''' </summary>
+    Private Function IsOuterPerimeterBandBar(
+            wb As WallBandBar,
+            lateralIdx As Integer,
+            barWidth As Double,
+            latMin As Double,
+            latMax As Double) As Boolean
+
+        If wb.Edge Is Nothing OrElse wb.Edge.Length < 4 Then Return False
+
+        Dim latA As Double = If(lateralIdx = 0, wb.Edge(0), wb.Edge(1))
+        Dim latB As Double = If(lateralIdx = 0, wb.Edge(2), wb.Edge(3))
+        Dim edgeLat As Double = (latA + latB) / 2.0
+
+        Dim latSpan As Double = latMax - latMin
+        Dim tol As Double = Math.Max(
+            OuterBBoxEpsilonInches,
+            Math.Max(Tolerance, latSpan * 0.0005 + Tolerance))
+
+        Return Math.Abs(edgeLat - latMin) < tol OrElse
+               Math.Abs(edgeLat - latMax) < tol
+    End Function
+
+    ''' <summary>
+    ''' True if a constant-span coordinate is on the panel bbox in span
+    ''' direction (immovable perpendicular band bars for ApplyPerpendicularGap).
+    ''' </summary>
+    Private Function IsOuterSpanCoordinate(
+            edgeSpan As Double,
+            spanMin As Double,
+            spanMax As Double) As Boolean
+        Dim sSpan As Double = spanMax - spanMin
+        Dim tol As Double = Math.Max(
+            OuterBBoxEpsilonInches,
+            Math.Max(Tolerance, sSpan * 0.0005 + Tolerance))
+        Return Math.Abs(edgeSpan - spanMin) < tol OrElse
+               Math.Abs(edgeSpan - spanMax) < tol
+    End Function
+
+    ''' <summary>
+    ''' Walks the polygon edges and returns one <see cref="WallBandBar"/>
+    ''' per perimeter edge that runs parallel to the bearing bars (i.e.
+    ''' every edge whose lateral coordinate is constant).
     '''
     ''' For an outer rectangular perimeter this returns the latMin and
-    ''' latMax positions.  For a perimeter with a notch whose walls are
-    ''' parallel to the bearing bars, it additionally returns the lateral
-    ''' coordinate of each notch wall — exactly the case where bearing
-    ''' bars at standard scan positions can land within 0.25" of the
-    ''' notch-wall band bar.
+    ''' latMax edges.  For a perimeter with a notch whose walls are
+    ''' parallel to the bearing bars, it additionally returns each notch
+    ''' wall — exactly the case where bearing bars at standard scan
+    ''' positions can land within MinGalvanizeGap of a wall band bar.
     '''
     ''' The returned position is the band bar's centerline, offset half a
     ''' bar width from the perimeter edge into the polygon material so
@@ -434,21 +673,24 @@ Public Class BearingBarLayoutService
             polygon As List(Of Double()),
             lateralIdx As Integer,
             spanIdx As Integer,
-            barWidth As Double) As List(Of Double)
+            barWidth As Double) As List(Of WallBandBar)
 
-        Dim result As New List(Of Double)
+        Dim result As New List(Of WallBandBar)
         If polygon Is Nothing OrElse polygon.Count < 2 Then Return result
 
-        ' Compute signed area to determine winding (CCW => positive).
-        Dim signedArea As Double = 0.0
-        For i As Integer = 0 To polygon.Count - 2
-            Dim a = polygon(i)
-            Dim b = polygon(i + 1)
-            signedArea += a(0) * b(1) - b(0) * a(1)
-        Next
-        Dim isCcw As Boolean = signedArea > 0.0
-
+        Dim isCcw As Boolean = ComputeSignedArea(polygon) > 0.0
         Dim half As Double = barWidth / 2.0
+
+        ' Outer lateral boundary edges (polyLatMin / polyLatMax) are NOT
+        ' band bar walls — the outermost bearing bars sit flush there and
+        ' form the side edges of the panel themselves.  Compute the
+        ' extremes so we can skip those edges below.
+        Dim polyLatMin As Double = Double.MaxValue
+        Dim polyLatMax As Double = Double.MinValue
+        For Each v As Double() In polygon
+            If v(lateralIdx) < polyLatMin Then polyLatMin = v(lateralIdx)
+            If v(lateralIdx) > polyLatMax Then polyLatMax = v(lateralIdx)
+        Next
 
         For i As Integer = 0 To polygon.Count - 2
             Dim a = polygon(i)
@@ -461,33 +703,155 @@ Public Class BearingBarLayoutService
             Dim dSpan As Double = b(spanIdx) - a(spanIdx)
             If Math.Abs(dSpan) < Tolerance Then Continue For ' degenerate
 
-            ' For a CCW polygon, "inside" is to the LEFT of the walking
-            ' direction.  Rotating the edge direction by +90° gives the
-            ' inside-pointing perpendicular.  In (X, Y) the rotation is
-            '   (dx, dy) -> (-dy, dx).
-            ' The sign of the lateral component depends on which axis
-            ' is the lateral one:
-            '   latIdx = 0 (X is lateral, Y is span):
-            '     dx = 0, dy = dSpan, perp = (-dSpan, 0).
-            '     lateral component = -sign(dSpan).
-            '   latIdx = 1 (Y is lateral, X is span):
-            '     dx = dSpan, dy = 0, perp = (0, dSpan).
-            '     lateral component = +sign(dSpan).
-            ' For CW polygons the sign is flipped.
-            Dim insideSign As Integer
-            If lateralIdx = 0 Then
-                insideSign = If(dSpan > 0, -1, 1)
-            Else
-                insideSign = If(dSpan > 0, 1, -1)
-            End If
-            If Not isCcw Then insideSign = -insideSign
+            ' Skip outer lateral boundary edges — these are not band bar walls.
+            Dim edgeLatCoord As Double = a(lateralIdx)
+            If Math.Abs(edgeLatCoord - polyLatMin) < Tolerance OrElse
+               Math.Abs(edgeLatCoord - polyLatMax) < Tolerance Then Continue For
 
-            Dim edgeLat As Double = a(lateralIdx)
-            result.Add(edgeLat + insideSign * half)
+            Dim insideSign As Integer =
+                ComputeInsideSign(lateralIdx, dSpan, isCcw)
+
+            Dim edgeCoords As Double() =
+                New Double() {a(0), a(1), b(0), b(1)}
+            result.Add(New WallBandBar(edgeLatCoord + insideSign * half, edgeCoords))
         Next
 
         Return result
     End Function
+
+    ''' <summary>Signed area of the closed polygon (positive => CCW).</summary>
+    Private Function ComputeSignedArea(polygon As List(Of Double())) As Double
+        Dim signedArea As Double = 0.0
+        For i As Integer = 0 To polygon.Count - 2
+            Dim a = polygon(i)
+            Dim b = polygon(i + 1)
+            signedArea += a(0) * b(1) - b(0) * a(1)
+        Next
+        Return signedArea
+    End Function
+
+    ''' <summary>
+    ''' For a perimeter edge parallel to one axis, returns +1 or -1 so
+    ''' that (edgeCoord + sign * halfWidth) lies inside the polygon
+    ''' material.  See FindParallelEdgeBandBarPositions for the
+    ''' geometric derivation.
+    ''' </summary>
+    ''' <param name="constantAxisIdx">
+    ''' Index of the axis on which the edge has constant coordinate
+    ''' (the axis we are offsetting along to find the inside direction).
+    ''' </param>
+    ''' <param name="dAlongEdge">
+    ''' Vector component along the edge direction on the OTHER axis.
+    ''' </param>
+    Private Function ComputeInsideSign(
+            constantAxisIdx As Integer,
+            dAlongEdge As Double,
+            isCcw As Boolean) As Integer
+        Dim insideSign As Integer
+        If constantAxisIdx = 0 Then
+            insideSign = If(dAlongEdge > 0, -1, 1)
+        Else
+            insideSign = If(dAlongEdge > 0, 1, -1)
+        End If
+        If Not isCcw Then insideSign = -insideSign
+        Return insideSign
+    End Function
+
+    ''' <summary>
+    ''' Symmetric counterpart of <see cref="ApplyMinGalvanizeGap"/> along
+    ''' the span axis: for every perimeter edge perpendicular to the
+    ''' span axis (i.e. parallel to the cross bars), check whether the
+    ''' wall band bar would land within MinGalvanizeGap of a cross bar
+    ''' at one of the standard CrossBarOnCenter positions.  When it
+    ''' does, the cross bar position is recorded for elimination by the
+    ''' cross bar generator AND the wall edge is recorded so the band
+    ''' bar generator does not produce a part for it.  Outer-perimeter
+    ''' edges (along spanMin / spanMax of the bearing bar layout) are
+    ''' immovable and are skipped.
+    ''' </summary>
+    Private Sub ApplyPerpendicularGap(
+            polygon As List(Of Double()),
+            params As GratingParameters,
+            latMin As Double,
+            latMax As Double,
+            lateralIdx As Integer,
+            spanIdx As Integer,
+            eliminatedEdges As List(Of Double()),
+            eliminatedCrossBarPositions As List(Of Double))
+
+        If polygon Is Nothing OrElse polygon.Count < 2 Then Return
+
+        ' Compute the bounding box on the span axis so we can identify
+        ' which perpendicular edges are outer (immovable).
+        Dim spanMin As Double = Double.MaxValue
+        Dim spanMax As Double = Double.MinValue
+        For Each v In polygon
+            If v(spanIdx) < spanMin Then spanMin = v(spanIdx)
+            If v(spanIdx) > spanMax Then spanMax = v(spanIdx)
+        Next
+
+        Dim isCcw As Boolean = ComputeSignedArea(polygon) > 0.0
+        Dim half As Double = params.BarWidth / 2.0
+        Dim minCenterDist As Double = params.BarWidth + MinGalvanizeGap
+
+        ' Cross bar positions: spanMin + firstOffset + N*OC, same formula
+        ' the cross bar generator uses.
+        Dim cbPositions As New List(Of Double)
+        Dim pos As Double = spanMin + params.FirstCrossBarOffset
+        Do While pos <= spanMax + Tolerance
+            cbPositions.Add(pos)
+            pos += params.CrossBarOnCenter
+        Loop
+
+        For i As Integer = 0 To polygon.Count - 2
+            Dim a = polygon(i)
+            Dim b = polygon(i + 1)
+            Dim dSpan As Double = b(spanIdx) - a(spanIdx)
+
+            ' Perpendicular to span axis when the edge has constant span coord.
+            If Math.Abs(dSpan) >= Tolerance Then Continue For
+
+            Dim dLat As Double = b(lateralIdx) - a(lateralIdx)
+            If Math.Abs(dLat) < Tolerance Then Continue For ' degenerate
+
+            Dim edgeSpan As Double = a(spanIdx)
+
+            ' Skip outer perimeter edges (immovable frame).
+            If IsOuterSpanCoordinate(edgeSpan, spanMin, spanMax) Then Continue For
+
+            Dim insideSign As Integer =
+                ComputeInsideSign(spanIdx, dLat, isCcw)
+            Dim wallBandBarPos As Double = edgeSpan + insideSign * half
+
+            ' Find the closest cross bar position to this wall band bar.
+            Dim conflictedCb As Double = Double.NaN
+            Dim closestDist As Double = Double.MaxValue
+            For Each cb In cbPositions
+                Dim d As Double = Math.Abs(cb - wallBandBarPos)
+                If d < closestDist Then
+                    closestDist = d
+                    conflictedCb = cb
+                End If
+            Next
+
+            If closestDist < minCenterDist - Tolerance AndAlso
+               Not Double.IsNaN(conflictedCb) Then
+                ' Notch-wall band bar conflicts with a cross bar: eliminate
+                ' the band bar (the cut snaps to the cross bar position),
+                ' keep the cross bar.
+                Dim edgeCoords As Double() =
+                    New Double() {a(0), a(1), b(0), b(1)}
+                eliminatedEdges.Add(edgeCoords)
+                Trace.TraceInformation(
+                    ": HMG Layout: Perpendicular gap — wall band bar at " &
+                    "span=" & wallBandBarPos.ToString("F4") &
+                    " conflicts with cross bar at " &
+                    conflictedCb.ToString("F4") &
+                    " (gap=" & closestDist.ToString("F4") &
+                    """); eliminating band bar, keeping cross bar.")
+            End If
+        Next
+    End Sub
 
 #End Region
 

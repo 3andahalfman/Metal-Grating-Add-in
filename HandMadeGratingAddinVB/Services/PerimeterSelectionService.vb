@@ -120,6 +120,42 @@ Public Class PerimeterSelectionService
         Return SelectionResult.Succeeded(data)
     End Function
 
+    ''' <summary>
+    ''' Lightweight check used before boundary-source Continue is accepted.
+    ''' Confirms the active Part has a resolvable sketch without extracting
+    ''' perimeter geometry (so the user can select a sketch and retry).
+    ''' </summary>
+    Public Function ValidateSketchResolvable() As SelectionResult
+        Dim doc As Document = GetActiveDocument()
+
+        If doc Is Nothing Then
+            Return SelectionResult.Failed(
+                "No document is open." & vbCrLf &
+                "Please open a Part document first.")
+        End If
+
+        If doc.DocumentType <> DocumentTypeEnum.kPartDocumentObject Then
+            Dim typeName As String = GetDocumentTypeName(doc.DocumentType)
+            Return SelectionResult.Failed(
+                "Grating creation is only supported in Part documents." & vbCrLf &
+                "Current document type: " & typeName & vbCrLf & vbCrLf &
+                "Supported: Part (.ipt)")
+        End If
+
+        Dim sketch As PlanarSketch = ResolveSketch(doc)
+        If sketch Is Nothing Then
+            Return SelectionResult.Failed(
+                "No sketch found." & vbCrLf & vbCrLf &
+                "To select a grating perimeter, do one of the following" &
+                " then click Continue:" & vbCrLf &
+                "  1. Double-click a sketch to edit it, or" & vbCrLf &
+                "  2. Single-click a sketch in the browser, or" & vbCrLf &
+                "  3. Select sketch curves in the graphics area.")
+        End If
+
+        Return SelectionResult.Succeeded(Nothing)
+    End Function
+
 #Region "Document helpers"
 
     Private Function GetActiveDocument() As Document

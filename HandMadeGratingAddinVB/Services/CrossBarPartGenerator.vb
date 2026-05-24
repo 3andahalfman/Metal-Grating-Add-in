@@ -202,6 +202,29 @@ Public Class CrossBarPartGenerator
             pos += crossBarOC
         Loop
 
+        ' Drop any cross bar position the galvanize-gap rule eliminated.
+        ' These positions collided with a perpendicular notch-wall band
+        ' bar within MinGalvanizeGap; both the band bar (skipped by the
+        ' band bar generator) and the cross bar must be removed.
+        If layout.EliminatedCrossBarPositions IsNot Nothing AndAlso
+           layout.EliminatedCrossBarPositions.Count > 0 Then
+            Dim dropped As Integer = 0
+            For e As Integer = positions.Count - 1 To 0 Step -1
+                For Each elim In layout.EliminatedCrossBarPositions
+                    If Math.Abs(positions(e) - elim) < 0.001 Then
+                        positions.RemoveAt(e)
+                        dropped += 1
+                        Exit For
+                    End If
+                Next
+            Next
+            If dropped > 0 Then
+                Trace.TraceInformation(
+                    ": HMG CrossBarGen: Dropped " & dropped &
+                    " cross bar position(s) per galvanize-gap rule.")
+            End If
+        End If
+
         ' Build polygon edge list for boundary-aware clipping
         Dim isBanded As Boolean =
             (params.Banding = BandingOptionType.Banded)
@@ -250,38 +273,51 @@ Public Class CrossBarPartGenerator
                 ' boundary shape at this span position.  At cutouts the
                 ' scan line may produce 4+ hits, producing multiple
                 ' separate cross bar segments per position.
-                Dim lateralHits As List(Of Double) =
-                    FindLateralIntersections(polyEdges, spanIdx, lateralIdx, cbPos)
+                Dim lateralHits As List(Of CrossBarLateralHit) =
+                    FindLateralIntersections(polyEdges, spanIdx, lateralIdx,
+                                              cbPos, params.BarWidth)
 
                 If lateralHits.Count >= 2 Then
-                    lateralHits.Sort()
+                    ' Sort by lateral coordinate (establishes entry/exit ordering).
+                    lateralHits.Sort(
+                        Function(a, b) a.LateralHit.CompareTo(b.LateralHit))
+
+                    ' Apply each hit's per-edge inset so cross-bar endpoints
+                    ' sit on the inner face of the band bar covering that
+                    ' edge — flush at 90° edges, larger inset at slants.
+                    Dim insetHits As New List(Of Double)
+                    For ix As Integer = 0 To lateralHits.Count - 1
+                        Dim hit As CrossBarLateralHit = lateralHits(ix)
+                        If (ix Mod 2) = 0 Then
+                            insetHits.Add(hit.LateralHit + hit.EdgeInset)
+                        Else
+                            insetHits.Add(hit.LateralHit - hit.EdgeInset)
+                        End If
+                    Next
+
                     ' Pair hits as entry/exit: (0,1), (2,3), etc.
                     Dim hitIdx As Integer = 0
-                    Do While hitIdx + 1 < lateralHits.Count
-                        Dim segLatMin As Double = lateralHits(hitIdx) + halfBarWidth
-                        Dim segLatMax As Double = lateralHits(hitIdx + 1) - halfBarWidth
+                    Do While hitIdx + 1 < insetHits.Count
+                        Dim entryLatMin As Double = insetHits(hitIdx)
+                        Dim entryLatMax As Double = insetHits(hitIdx + 1)
                         hitIdx += 2
 
-                        If segLatMax - segLatMin < 0.001 Then Continue Do
+                        Dim cbLength As Double = entryLatMax - entryLatMin
+                        If cbLength < 0.001 Then Continue Do
 
-                        ' Count bearing bars within this segment
+                        ' Count bearing bars within this segment.  PDF rule:
+                        ' a cross bar must span >= 2 bearing bars to be useful,
+                        ' so 0- and 1-bar segments (the orphan slivers in a
+                        ' slanted corner) are dropped here.
                         Dim segCrossed As Integer = 0
                         For Each lat In crossedLaterals
-                            If lat >= segLatMin - 0.001 AndAlso
-                               lat <= segLatMax + 0.001 Then
+                            If lat >= entryLatMin - 0.001 AndAlso
+                               lat <= entryLatMax + 0.001 Then
                                 segCrossed += 1
                             End If
                         Next
 
-                        If segCrossed < 1 Then Continue Do
-
-                        ' Banded: cross bars cut back to inner face of band bar.
-                        ' LateralMin/Max are the actual start/end world coordinates.
-                        Dim entryLatMin As Double = lateralHits(hitIdx - 2) + params.BarWidth
-                        Dim entryLatMax As Double = lateralHits(hitIdx - 1) - params.BarWidth
-                        Dim cbLength As Double = entryLatMax - entryLatMin
-
-                        If cbLength < 0.001 Then Continue Do
+                        If segCrossed < 2 Then Continue Do
 
                         index += 1
                         Dim entry As New CrossBarEntry()
@@ -638,18 +674,48 @@ Public Class CrossBarPartGenerator
     End Function
 
     ''' <summary>
+    ''' One scan-line / polygon-edge intersection for cross-bar clipping.
+    ''' LateralHit is the lateral coordinate where the cross-bar scan
+    ''' line crosses the perimeter edge.  EdgeInset is the per-edge
+    ''' along-lateral inset to apply in banded mode so the cross bar
+    ''' terminates at the inner face of the band bar covering this
+    ''' edge.  Mirror of BearingBarLayoutService.ScanIntersection, just
+    ''' projected along the lateral axis instead of the span axis.
+    ''' </summary>
+    Private Structure CrossBarLateralHit
+        Public ReadOnly LateralHit As Double
+        Public ReadOnly EdgeInset As Double
+        Public Sub New(latHit As Double, inset As Double)
+            LateralHit = latHit
+            EdgeInset = inset
+        End Sub
+    End Structure
+
+    ''' <summary>
     ''' Casts a scan line along the lateral axis at the given span
     ''' position and finds all lateral-axis intersections with the
-    ''' polygon edges.  Same algorithm as
-    ''' BearingBarLayoutService.FindScanIntersections but parameterised
-    ''' for cross bar use (scan axis = span, hit axis = lateral).
+    ''' polygon edges.  Computes a per-edge along-lateral inset so the
+    ''' cross bar terminates exactly at the inner face of the band bar
+    ''' covering that edge:
+    '''
+    '''     inset = barWidth * sqrt(dLat² + dSpan²) / |dSpan|
+    '''           = barWidth / sin(theta)
+    '''
+    ''' where theta is the angle between the edge and the lateral axis.
+    ''' At an edge perpendicular to the lateral axis (i.e. the standard
+    ''' top/bottom of a rectangular panel) the inset equals barWidth;
+    ''' for slanted edges the along-lateral inset is correspondingly
+    ''' larger so the cross bar end sits flush against the slanted band
+    ''' bar.  This is the lateral-axis dual of the bearing bar
+    ''' EdgeInset computed in BearingBarLayoutService.FindScanIntersections.
     ''' </summary>
     Private Shared Function FindLateralIntersections(
             edges As List(Of Double()()),
             spanIdx As Integer,
             lateralIdx As Integer,
-            spanPos As Double) As List(Of Double)
-        Dim hits As New List(Of Double)
+            spanPos As Double,
+            barWidth As Double) As List(Of CrossBarLateralHit)
+        Dim hits As New List(Of CrossBarLateralHit)
 
         For Each edge As Double()() In edges
             Dim a As Double() = edge(0)
@@ -664,21 +730,49 @@ Public Class CrossBarPartGenerator
 
             If spanPos < minSpan - PolyTolerance OrElse
                spanPos >= maxSpan - PolyTolerance Then
-                If Math.Abs(spanPos - maxSpan) < PolyTolerance Then
-                    ' Half-open: skip to avoid double-counting at shared vertices
-                End If
                 Continue For
             End If
 
             ' Edge parallel to scan line (degenerate)
-            If Math.Abs(bSpan - aSpan) < PolyTolerance Then
+            Dim dSpan As Double = bSpan - aSpan
+            If Math.Abs(dSpan) < PolyTolerance Then
                 Continue For
             End If
 
             ' Linear interpolation to find lateral coordinate at spanPos
-            Dim t As Double = (spanPos - aSpan) / (bSpan - aSpan)
-            Dim lateralHit As Double = a(lateralIdx) + t * (b(lateralIdx) - a(lateralIdx))
-            hits.Add(lateralHit)
+            Dim t As Double = (spanPos - aSpan) / dSpan
+            Dim dLat As Double = b(lateralIdx) - a(lateralIdx)
+            Dim lateralHit As Double = a(lateralIdx) + t * dLat
+
+            ' Per-edge along-lateral inset for banded-mode trimming.
+            '
+            ' Side edges that run parallel to the bearing bars do NOT
+            ' get a band bar (the outermost bearing bar is itself flush
+            ' against that edge — see BandBarGenerator's LateralTolerance
+            ' skip in v1.5.3+).  When the cross bar's scan line hits one
+            ' of those edges, no inset is applied — the cross bar must
+            ' extend all the way to the perimeter so it terminates flush
+            ' with the outer face of the outermost bearing bar.
+            '
+            ' For every other edge (top/bottom band bar, slanted band
+            ' bar, notch wall band bar) the inset is the lateral-axis
+            ' dual of the bearing bar EdgeInset:
+            '     inset = barWidth * sqrt(dLat² + dSpan²) / |dSpan|
+            ' which equals barWidth at perpendicular edges and grows
+            ' for slanted edges.
+            Const LateralTolerance As Double = 0.01
+            Dim edgeLen As Double = Math.Sqrt(dLat * dLat + dSpan * dSpan)
+            Dim edgeInset As Double
+            If edgeLen > 0.0001 AndAlso
+               Math.Abs(dLat) / edgeLen < LateralTolerance Then
+                ' Edge runs parallel to the bearing bars (no band bar) —
+                ' cross bar reaches the perimeter, no inset.
+                edgeInset = 0.0
+            Else
+                edgeInset = barWidth * edgeLen / Math.Abs(dSpan)
+            End If
+
+            hits.Add(New CrossBarLateralHit(lateralHit, edgeInset))
         Next
 
         Return hits

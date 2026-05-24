@@ -34,6 +34,7 @@ Public Class BoundarySourceDialog
     ''' enable/disable and label the named sketch radio button.
     ''' </summary>
     Private ReadOnly _namedSketchLookup As NamedSketchLookupResult
+    Private ReadOnly _app As Inventor.Application
 
     ''' <summary>
     ''' The user-entered project name. Only meaningful when DialogResult is OK.
@@ -53,10 +54,12 @@ Public Class BoundarySourceDialog
     ''' named sketch option is enabled and pre-selected.
     ''' </summary>
     Public Sub New(Optional defaultProjectName As String = "Grating",
-                   Optional namedSketchLookup As NamedSketchLookupResult = Nothing)
+                   Optional namedSketchLookup As NamedSketchLookupResult = Nothing,
+                   Optional app As Inventor.Application = Nothing)
         ProjectName = If(defaultProjectName, "Grating")
         SelectedSourceType = BoundarySourceType.SelectedSketch
         _namedSketchLookup = namedSketchLookup
+        _app = app
         InitializeControls()
         ConfigureNamedSketchOption()
     End Sub
@@ -243,8 +246,43 @@ Public Class BoundarySourceDialog
         Trace.TraceInformation(": HMG: BoundarySourceDialog — project=""" &
             ProjectName & """, source=" & SelectedSourceType.ToString())
 
+        If Not ValidateSelectedSource() Then
+            Return
+        End If
+
         Me.DialogResult = DialogResult.OK
         Me.Close()
     End Sub
+
+    Private Function ValidateSelectedSource() As Boolean
+        If SelectedSourceType = BoundarySourceType.NamedSketch Then
+            If _namedSketchLookup IsNot Nothing AndAlso _namedSketchLookup.Found Then
+                Return True
+            End If
+            MessageBox.Show(
+                "The named boundary sketch """ &
+                BoundarySourceService.PrimaryName &
+                """ was not found in this Part document.",
+                "Metal Bar Grating",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Exclamation)
+            Return False
+        End If
+
+        If _app Is Nothing Then
+            Return True
+        End If
+
+        Dim check As SelectionResult =
+            New PerimeterSelectionService(_app).ValidateSketchResolvable()
+        If check.Success Then Return True
+
+        MessageBox.Show(
+            check.ErrorMessage,
+            "Metal Bar Grating",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Exclamation)
+        Return False
+    End Function
 
 End Class

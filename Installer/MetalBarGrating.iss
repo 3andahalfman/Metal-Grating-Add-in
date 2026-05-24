@@ -16,7 +16,7 @@
 ; ============================================================
 
 #define MyAppName        "Metal Bar Grating"
-#define MyAppVersion     "1.3.4"
+#define MyAppVersion     "1.5.14"
 #define MyAppPublisher   "GP INC"
 #define MyAppURL         ""
 #define MyAppGuid        "{{37b59293-54b3-43f0-8166-ab23d5cf61ed}"
@@ -66,16 +66,43 @@ Source: "{#ReleaseDir}\Resources\*"; DestDir: "{app}\Contents\Resources"; Flags:
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Code]
-// Check if Inventor is installed
-function InitializeSetup(): Boolean;
+// Returns True when any supported Inventor install folder or registry key exists.
+function InventorYearDirExists(const Pf, Pf32, Year: String): Boolean;
+begin
+  Result :=
+    DirExists(Pf + '\Autodesk\Inventor ' + Year) or
+    DirExists(Pf32 + '\Autodesk\Inventor ' + Year);
+end;
+
+function IsInventorInstalled(): Boolean;
 var
-  InventorPath: String;
+  Pf, Pf32: String;
+begin
+  Pf := ExpandConstant('{pf}');
+  Pf32 := ExpandConstant('{pf32}');
+
+  // Year-suffixed install folders (2024+). Add new years here as releases ship.
+  Result :=
+    InventorYearDirExists(Pf, Pf32, '2024') or
+    InventorYearDirExists(Pf, Pf32, '2025') or
+    InventorYearDirExists(Pf, Pf32, '2026') or
+    InventorYearDirExists(Pf, Pf32, '2027') or
+    InventorYearDirExists(Pf, Pf32, '2028');
+
+  if Result then
+    Exit;
+
+  // Generic fallback: HKLM\SOFTWARE\Autodesk\Inventor
+  Result :=
+    RegKeyExists(HKLM, 'SOFTWARE\Autodesk\Inventor') or
+    RegKeyExists(HKLM64, 'SOFTWARE\Autodesk\Inventor');
+end;
+
+function InitializeSetup(): Boolean;
 begin
   Result := True;
 
-  // Check common Inventor install paths
-  if not DirExists(ExpandConstant('{pf}\Autodesk\Inventor 2024')) and
-     not DirExists(ExpandConstant('{pf}\Autodesk\Inventor 2025')) then
+  if not IsInventorInstalled() then
   begin
     if MsgBox('Autodesk Inventor 2024 or later was not detected.' + #13#10 +
               'The add-in requires Inventor to function.' + #13#10#13#10 +
@@ -89,8 +116,6 @@ end;
 
 // Close Inventor before install if running
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ResultCode: Integer;
 begin
   Result := '';
   // Warn if Inventor is running

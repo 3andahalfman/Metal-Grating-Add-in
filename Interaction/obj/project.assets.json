@@ -1558,24 +1558,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\emera\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "C:\\Users\\emera\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\Interaction.csproj",
+      "projectUniqueName": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\Interaction\\Interaction.csproj",
       "projectName": "Interaction",
-      "projectPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\Interaction.csproj",
+      "projectPath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\Interaction\\Interaction.csproj",
       "packagesPath": "C:\\Users\\emera\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\Interaction\\obj\\",
+      "outputPath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\Interaction\\obj\\",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
         "C:\\Users\\emera\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -1587,7 +1582,6 @@
       },
       "frameworks": {
         "net8.0": {
-          "framework": "net8.0",
           "targetAlias": "net8.0",
           "projectReferences": {}
         }
@@ -1606,7 +1600,6 @@
     },
     "frameworks": {
       "net8.0": {
-        "framework": "net8.0",
         "targetAlias": "net8.0",
         "dependencies": {
           "Autodesk.Authentication": {
@@ -1660,7 +1653,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.202/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

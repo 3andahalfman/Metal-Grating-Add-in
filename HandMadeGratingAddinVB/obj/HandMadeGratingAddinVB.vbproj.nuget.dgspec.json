@@ -1,24 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj": {}
+    "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj": {}
   },
   "projects": {
-    "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj": {
+    "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
+        "projectUniqueName": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
         "projectName": "HandMadeGratingAddinVB",
-        "projectPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
+        "projectPath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\HandMadeGratingAddinVB\\HandMadeGratingAddinVB.vbproj",
         "packagesPath": "C:\\Users\\emera\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\emera\\OneDrive\\Documents\\Addin\\HandMadeGratingAddin\\HandMadeGratingAddinVB\\obj\\",
+        "outputPath": "C:\\Users\\emera\\Desktop\\Metal-Grating-Add-in\\HandMadeGratingAddinVB\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
           "C:\\Users\\emera\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
@@ -49,7 +45,7 @@
       "frameworks": {
         "net48": {
           "targetAlias": "net48",
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.202\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203\\RuntimeIdentifierGraph.json"
         }
       }
     }

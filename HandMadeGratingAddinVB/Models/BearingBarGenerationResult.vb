@@ -25,6 +25,22 @@ Public Class BearingBarGenerationResult
     ''' <summary>Resolved output folder that was used.</summary>
     Public Property OutputFolder As String
 
+    ''' <summary>
+    ''' Number of distinct lateral scan positions used by the layout.
+    ''' At a polygon notch each position may produce multiple
+    ''' fabrication pieces (one per polygon entry/exit pair); this
+    ''' property reports the count the user sees on a design drawing.
+    ''' Forwarded from <see cref="BearingBarLayoutResult.UniqueLateralPositions"/>.
+    ''' </summary>
+    Public Property UniqueLateralPositions As Integer
+
+    ''' <summary>
+    ''' Span direction used by the layout. Surfaced in the generation
+    ''' summary so the user can confirm their orientation selection.
+    ''' Forwarded from <see cref="BearingBarLayoutResult.SpanDirection"/>.
+    ''' </summary>
+    Public Property SpanDirection As SpanDirectionType
+
     ' --- Computed helpers ---
 
     Public ReadOnly Property TotalRequested As Integer
@@ -65,12 +81,16 @@ Public Class BearingBarGenerationResult
 
     Public Shared Function Succeeded(files As List(Of GeneratedBearingBarFile),
                                      outputFolder As String,
-                                     warnings As List(Of String)) As BearingBarGenerationResult
+                                     warnings As List(Of String),
+                                     Optional uniqueLateralPositions As Integer = 0,
+                                     Optional spanDirection As SpanDirectionType = SpanDirectionType.AlongY) As BearingBarGenerationResult
         Return New BearingBarGenerationResult With {
             .Success = True,
             .Files = files,
             .OutputFolder = outputFolder,
-            .Warnings = If(warnings, New List(Of String))
+            .Warnings = If(warnings, New List(Of String)),
+            .UniqueLateralPositions = uniqueLateralPositions,
+            .SpanDirection = spanDirection
         }
     End Function
 
@@ -83,6 +103,21 @@ Public Class BearingBarGenerationResult
         }
     End Function
 
+    ''' <summary>
+    ''' Human-readable label for the span direction, matching the
+    ''' parameter-panel combo wording (v1.5.7+).
+    ''' </summary>
+    Private Function SpanDirectionLabel() As String
+        Select Case SpanDirection
+            Case SpanDirectionType.AlongY
+                Return "Vertical (along Y)"
+            Case SpanDirectionType.AlongX
+                Return "Horizontal (along X)"
+            Case Else
+                Return SpanDirection.ToString()
+        End Select
+    End Function
+
     ''' <summary>Builds a multi-line summary string for UI/logging.</summary>
     Public Function ToSummary() As String
         If Not Success Then Return "Part generation failed: " & ErrorMessage
@@ -90,7 +125,17 @@ Public Class BearingBarGenerationResult
         Dim sb As New System.Text.StringBuilder()
         sb.AppendLine("Bearing Bars")
         sb.AppendLine("———————————————————————————————————")
-        sb.AppendLine("Total bars     : " & TotalSaved & " / " & TotalRequested)
+        sb.AppendLine("Span direction : " & SpanDirectionLabel())
+        ' Show unique scan positions (matches the design-drawing
+        ' convention the user sees in CAD references) alongside the
+        ' fabrication-piece total (= count of .ipt files).
+        If UniqueLateralPositions > 0 AndAlso
+           UniqueLateralPositions <> TotalSaved Then
+            sb.AppendLine("Bars (positions): " & UniqueLateralPositions)
+            sb.AppendLine("Fabrication pieces: " & TotalSaved & " / " & TotalRequested)
+        Else
+            sb.AppendLine("Total bars     : " & TotalSaved & " / " & TotalRequested)
+        End If
         sb.AppendLine("Total notches  : " & TotalNotches)
 
         If Warnings.Count > 0 Then
