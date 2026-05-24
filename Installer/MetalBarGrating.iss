@@ -16,7 +16,7 @@
 ; ============================================================
 
 #define MyAppName        "Metal Bar Grating"
-#define MyAppVersion     "1.5.14"
+#define MyAppVersion     "1.5.15"
 #define MyAppPublisher   "GP INC"
 #define MyAppURL         ""
 #define MyAppGuid        "{{37b59293-54b3-43f0-8166-ab23d5cf61ed}"

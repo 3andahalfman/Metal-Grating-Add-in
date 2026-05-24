@@ -183,6 +183,16 @@ Public Class BearingBarLayoutService
             ' Build polygon edge list
             Dim edges As List(Of Double()()) = BuildEdges(poly)
 
+            ' Arc-aware trim setup: build an edge-index → inner-face-circle
+            ' map so the scan-line clip lands on the curved band bar's inner
+            ' face (radius R ± barWidth from arc centre) instead of on the
+            ' tessellated chord that lies on the arc itself.  Without this
+            ' override, bearing bars terminate ~on the arc and overlap the
+            ' curved band bar's body (the chord-normal banded inset is only
+            ' approximate and zero in non-banded mode).
+            Dim arcEdgeMap As Dictionary(Of Integer, ArcEdgeContext) =
+                BuildArcEdgeMap(perimeter, poly, params.BarWidth, edges.Count)
+
             ' Scan and clip
             Dim bars As New List(Of TrimmedBearingBar)
             Dim barIndex As Integer = 0
@@ -190,7 +200,7 @@ Public Class BearingBarLayoutService
             For Each latPos As Double In positions
                 Dim intersections As List(Of ScanIntersection) =
                     FindScanIntersections(edges, lateralIdx, spanIdx, latPos,
-                                          params.BarWidth)
+                                          params.BarWidth, arcEdgeMap)
 
                 If intersections.Count < 2 Then
                     warnings.Add("Scan at lateral=" & latPos.ToString("F4") &
@@ -954,10 +964,12 @@ Public Class BearingBarLayoutService
                                            latIdx As Integer,
                                            spanIdx As Integer,
                                            latPos As Double,
-                                           barWidth As Double) As List(Of ScanIntersection)
+                                           barWidth As Double,
+                                           arcEdgeMap As Dictionary(Of Integer, ArcEdgeContext)) As List(Of ScanIntersection)
         Dim hits As New List(Of ScanIntersection)
 
-        For Each edge As Double()() In edges
+        For ei As Integer = 0 To edges.Count - 1
+            Dim edge As Double()() = edges(ei)
             Dim a As Double() = edge(0)
             Dim b As Double() = edge(1)
 
@@ -984,7 +996,39 @@ Public Class BearingBarLayoutService
 
             ' Linear interpolation to find span coordinate at latPos
             Dim t As Double = (latPos - aLat) / dLat
-            Dim spanHit As Double = a(spanIdx) + t * dSpan
+            Dim chordSpanHit As Double = a(spanIdx) + t * dSpan
+
+            ' Arc-aware override: if this edge is a tessellated chord of
+            ' an arc, replace the chord interpolation with the exact
+            ' intersection of the scan line and the inner-face circle
+            ' (radius R ± barWidth centred on the arc).  The hit's
+            ' EdgeInset is set to zero — the circle root already sits on
+            ' the curved band bar's inner face, no banded shift needed.
+            If arcEdgeMap IsNot Nothing AndAlso arcEdgeMap.ContainsKey(ei) Then
+                Dim ctx As ArcEdgeContext = arcEdgeMap(ei)
+                Dim cLat As Double = If(latIdx = 0, ctx.CenterX, ctx.CenterY)
+                Dim cSpan As Double = If(spanIdx = 0, ctx.CenterX, ctx.CenterY)
+                Dim dy As Double = latPos - cLat
+                Dim disc As Double =
+                    ctx.InnerFaceRadius * ctx.InnerFaceRadius - dy * dy
+                If disc >= 0 Then
+                    Dim root As Double = Math.Sqrt(disc)
+                    Dim r1 As Double = cSpan + root
+                    Dim r2 As Double = cSpan - root
+                    ' Pick whichever circle root is closer to the chord's
+                    ' interpolated hit — correct for both single-arc
+                    ' cutouts (one chord hit) and circular holes (two
+                    ' chord hits, each mapping to its own root).
+                    Dim arcHit As Double =
+                        If(Math.Abs(r1 - chordSpanHit) <=
+                           Math.Abs(r2 - chordSpanHit), r1, r2)
+                    hits.Add(New ScanIntersection(arcHit, 0))
+                    Continue For
+                End If
+                ' Discriminant < 0: scan line lies outside the inner-face
+                ' circle.  Fall through to chord-based behaviour so the
+                ' bearing bar is still trimmed (better than dropping it).
+            End If
 
             ' Per-edge along-span inset for banded-mode trimming.  Equals
             ' barWidth / |sin(theta)| where theta is angle between the
@@ -993,10 +1037,87 @@ Public Class BearingBarLayoutService
             Dim edgeLen As Double = Math.Sqrt(dSpan * dSpan + dLat * dLat)
             Dim edgeInset As Double = barWidth * edgeLen / Math.Abs(dLat)
 
-            hits.Add(New ScanIntersection(spanHit, edgeInset))
+            hits.Add(New ScanIntersection(chordSpanHit, edgeInset))
         Next
 
         Return hits
+    End Function
+
+    ''' <summary>
+    ''' Inner-face geometry for one tessellated chord of an arc.
+    ''' Used by <see cref="FindScanIntersections"/> to replace the
+    ''' chord interpolation with the exact circle intersection at the
+    ''' curved band bar's inner face.
+    ''' </summary>
+    Private Structure ArcEdgeContext
+        Public CenterX As Double
+        Public CenterY As Double
+        Public InnerFaceRadius As Double
+    End Structure
+
+    ''' <summary>
+    ''' Builds a mapping from polygon edge index to inner-face circle
+    ''' geometry for every chord edge that belongs to an arc.  Edges
+    ''' not in the map are straight perimeter edges and use the
+    ''' existing chord-based clip.
+    ''' </summary>
+    Private Function BuildArcEdgeMap(perimeter As PerimeterData,
+                                     poly As List(Of Double()),
+                                     barWidth As Double,
+                                     edgeCount As Integer) As Dictionary(Of Integer, ArcEdgeContext)
+        Dim map As New Dictionary(Of Integer, ArcEdgeContext)
+        If perimeter Is Nothing OrElse perimeter.ArcSegments Is Nothing OrElse
+           perimeter.ArcSegments.Count = 0 Then
+            Return map
+        End If
+
+        ' Signed area → +1 for CCW polygon (perpendicular -ey,ex points
+        ' inward), −1 for CW.  ArcExtendsOutward classification matches
+        ' BandBarGenerator: sweep × perpSign < 0 ⇒ cutout/outward arc.
+        Dim signedArea As Double = 0
+        Dim n As Integer = poly.Count - 1 ' last vertex duplicates first
+        For vi As Integer = 0 To n - 1
+            Dim vj As Integer = (vi + 1) Mod n
+            signedArea += poly(vi)(0) * poly(vj)(1) -
+                          poly(vj)(0) * poly(vi)(1)
+        Next
+        Dim perpSign As Double = If(signedArea > 0, 1.0, -1.0)
+
+        For Each arc As PerimeterArcInfo In perimeter.ArcSegments
+            Dim outward As Boolean = (arc.SweepAngle * perpSign < 0)
+            Dim innerFaceR As Double =
+                If(outward, arc.Radius + barWidth,
+                            arc.Radius - barWidth)
+            If innerFaceR <= 0 Then Continue For ' degenerate, skip
+
+            Dim ctx As New ArcEdgeContext() With {
+                .CenterX = arc.CenterX,
+                .CenterY = arc.CenterY,
+                .InnerFaceRadius = innerFaceR}
+
+            ' Arc occupies VertexCount vertices (entry + intermediate);
+            ' its chord edges are FirstVertexIndex .. FirstVertexIndex +
+            ' VertexCount − 1 (the last chord lands on the exit vertex
+            ' shared with the next perimeter section).
+            Dim lo As Integer = arc.FirstVertexIndex
+            Dim hi As Integer = arc.FirstVertexIndex + arc.VertexCount - 1
+            For ei As Integer = lo To hi
+                If ei >= 0 AndAlso ei < edgeCount Then
+                    map(ei) = ctx
+                End If
+            Next
+
+            Trace.TraceInformation(
+                ": HMG Layout: Arc clip — centre=(" &
+                arc.CenterX.ToString("F3") & "," &
+                arc.CenterY.ToString("F3") & ") R=" &
+                arc.Radius.ToString("F3") & " outward=" &
+                outward.ToString() & " innerFaceR=" &
+                innerFaceR.ToString("F3") & " edges=" &
+                lo & ".." & hi)
+        Next
+
+        Return map
     End Function
 
 #End Region
