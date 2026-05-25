@@ -312,33 +312,48 @@ Public Class CrossBarPartGenerator
                         Dim entryLatMax As Double = insetHits(hitIdx + 1)
                         hitIdx += 2
 
-                        Dim cbLength As Double = entryLatMax - entryLatMin
-                        If cbLength < 0.001 Then Continue Do
+                        ' Body-aware arc cuts: split this (latMin, latMax)
+                        ' segment around any arc whose body intersects the
+                        ' cross bar's body but whose centerline the chord
+                        ' scan missed.  Mirrors the bearing-bar fix.
+                        Dim subSegments As List(Of Double()) =
+                            ApplyArcBodyCuts(
+                                entryLatMin, entryLatMax, cbPos,
+                                params.BarWidth, arcEdgeMap,
+                                lateralIdx, spanIdx)
 
-                        ' Count bearing bars within this segment.  PDF rule:
-                        ' a cross bar must span >= 2 bearing bars to be useful,
-                        ' so 0- and 1-bar segments (the orphan slivers in a
-                        ' slanted corner) are dropped here.
-                        Dim segCrossed As Integer = 0
-                        For Each lat In crossedLaterals
-                            If lat >= entryLatMin - 0.001 AndAlso
-                               lat <= entryLatMax + 0.001 Then
-                                segCrossed += 1
-                            End If
+                        For Each subSeg As Double() In subSegments
+                            Dim subMin As Double = subSeg(0)
+                            Dim subMax As Double = subSeg(1)
+                            Dim cbLength As Double = subMax - subMin
+                            If cbLength < 0.001 Then Continue For
+
+                            ' Count bearing bars within this segment.  PDF
+                            ' rule: a cross bar must span >= 2 bearing bars
+                            ' to be useful, so 0- and 1-bar segments (the
+                            ' orphan slivers in a slanted corner or in the
+                            ' tip of an arc cutout) are dropped here.
+                            Dim segCrossed As Integer = 0
+                            For Each lat In crossedLaterals
+                                If lat >= subMin - 0.001 AndAlso
+                                   lat <= subMax + 0.001 Then
+                                    segCrossed += 1
+                                End If
+                            Next
+
+                            If segCrossed < 2 Then Continue For
+
+                            index += 1
+                            Dim entry As New CrossBarEntry()
+                            entry.Index = index
+                            entry.AbsolutePosition = cbPos
+                            entry.Length = cbLength
+                            entry.BarsCrossed = segCrossed
+                            entry.LateralMin = subMin
+                            entry.LateralMax = subMax
+                            entry.Mark = "CB-" & index.ToString("000")
+                            entries.Add(entry)
                         Next
-
-                        If segCrossed < 2 Then Continue Do
-
-                        index += 1
-                        Dim entry As New CrossBarEntry()
-                        entry.Index = index
-                        entry.AbsolutePosition = cbPos
-                        entry.Length = cbLength
-                        entry.BarsCrossed = segCrossed
-                        entry.LateralMin = entryLatMin
-                        entry.LateralMax = entryLatMax
-                        entry.Mark = "CB-" & index.ToString("000")
-                        entries.Add(entry)
                     Loop
                 Else
                     ' Fallback: single cross bar using fixed bounds.
@@ -840,6 +855,7 @@ Public Class CrossBarPartGenerator
     Private Structure CrossBarArcEdgeContext
         Public CenterX As Double
         Public CenterY As Double
+        Public ArcRadius As Double
         Public InnerFaceRadius As Double
     End Structure
 
@@ -885,6 +901,7 @@ Public Class CrossBarPartGenerator
             Dim ctx As New CrossBarArcEdgeContext() With {
                 .CenterX = arc.CenterX,
                 .CenterY = arc.CenterY,
+                .ArcRadius = arc.Radius,
                 .InnerFaceRadius = innerFaceR}
 
             Dim lo As Integer = arc.FirstVertexIndex
@@ -906,6 +923,79 @@ Public Class CrossBarPartGenerator
         Next
 
         Return map
+    End Function
+
+    ''' <summary>
+    ''' Splits a single (latMin, latMax) cross-bar segment around every
+    ''' arc whose body intersects the bar's body but whose centerline
+    ''' the chord scan missed.  Mirror of
+    ''' BearingBarLayoutService.ApplyArcBodyCuts — handles cross bars
+    ''' whose spanPos sits just outside [cSpan-R, cSpan+R] so the chord
+    ''' scan finds no arc hit but the bar's near edge still protrudes
+    ''' into the curved band bar.
+    ''' </summary>
+    Private Shared Function ApplyArcBodyCuts(
+            latMin As Double, latMax As Double,
+            spanPos As Double, barWidth As Double,
+            arcEdgeMap As Dictionary(Of Integer, CrossBarArcEdgeContext),
+            lateralIdx As Integer, spanIdx As Integer) As List(Of Double())
+
+        Dim segments As New List(Of Double())
+        segments.Add(New Double() {latMin, latMax})
+
+        If arcEdgeMap Is Nothing OrElse arcEdgeMap.Count = 0 Then
+            Return segments
+        End If
+
+        Dim halfBW As Double = barWidth / 2.0
+        Dim seen As New HashSet(Of String)
+
+        For Each ctx As CrossBarArcEdgeContext In arcEdgeMap.Values
+            Dim key As String =
+                ctx.CenterX.ToString("F6") & "|" &
+                ctx.CenterY.ToString("F6") & "|" &
+                ctx.InnerFaceRadius.ToString("F6")
+            If Not seen.Add(key) Then Continue For
+
+            Dim cSpan As Double = If(spanIdx = 0, ctx.CenterX, ctx.CenterY)
+            Dim cLat As Double = If(lateralIdx = 0, ctx.CenterX, ctx.CenterY)
+            Dim absDy As Double = Math.Abs(spanPos - cSpan)
+
+            ' Skip arcs the chord scan already trimmed (v1.5.17 path).
+            If absDy <= ctx.ArcRadius + PolyTolerance Then Continue For
+
+            Dim nearEdgeDy As Double = absDy - halfBW
+            If nearEdgeDy < 0 Then nearEdgeDy = 0
+            Dim disc As Double =
+                ctx.InnerFaceRadius * ctx.InnerFaceRadius -
+                nearEdgeDy * nearEdgeDy
+            If disc <= 0 Then Continue For
+
+            Dim root As Double = Math.Sqrt(disc)
+            Dim cutLow As Double = cLat - root
+            Dim cutHigh As Double = cLat + root
+
+            Dim newSegments As New List(Of Double())
+            For Each seg As Double() In segments
+                Dim s As Double = seg(0)
+                Dim e As Double = seg(1)
+                If e <= cutLow OrElse s >= cutHigh Then
+                    newSegments.Add(seg)
+                ElseIf s >= cutLow AndAlso e <= cutHigh Then
+                    ' Entirely inside cut — drop.
+                ElseIf s < cutLow AndAlso e <= cutHigh Then
+                    newSegments.Add(New Double() {s, cutLow})
+                ElseIf s >= cutLow AndAlso e > cutHigh Then
+                    newSegments.Add(New Double() {cutHigh, e})
+                Else
+                    newSegments.Add(New Double() {s, cutLow})
+                    newSegments.Add(New Double() {cutHigh, e})
+                End If
+            Next
+            segments = newSegments
+        Next
+
+        Return segments
     End Function
 
 End Class

@@ -240,41 +240,53 @@ Public Class BearingBarLayoutService
                     Next
                 End If
 
-                ' Pair entry/exit (even index = entry, odd = exit)
+                ' Pair entry/exit (even index = entry, odd = exit), then
+                ' apply body-aware arc cuts so bars whose centerline
+                ' misses an arc — but whose body crosses the inner-face
+                ' circle — are split around the arc instead of running
+                ' straight through it.
                 For p As Integer = 0 To intersections.Count - 2 Step 2
                     Dim spanStart As Double = intersections(p).SpanHit
                     Dim spanEnd As Double = intersections(p + 1).SpanHit
-                    Dim barLength As Double = spanEnd - spanStart
 
-                    If barLength < Tolerance Then
-                        warnings.Add("Zero-length bar at lateral=" &
-                                     latPos.ToString("F4") & " — skipped.")
-                        Continue For
-                    End If
+                    Dim subSegments As List(Of Double()) =
+                        ApplyArcBodyCuts(
+                            spanStart, spanEnd, latPos, params.BarWidth,
+                            arcEdgeMap, lateralIdx, spanIdx)
 
-                    barIndex += 1
+                    For Each subSeg As Double() In subSegments
+                        Dim subStart As Double = subSeg(0)
+                        Dim subEnd As Double = subSeg(1)
+                        Dim subLength As Double = subEnd - subStart
 
-                    Dim startPt As Double()
-                    Dim endPt As Double()
+                        If subLength < Tolerance Then
+                            Continue For
+                        End If
 
-                    If params.SpanDirection = SpanDirectionType.AlongX Then
-                        startPt = New Double() {spanStart, latPos}
-                        endPt = New Double() {spanEnd, latPos}
-                    Else
-                        startPt = New Double() {latPos, spanStart}
-                        endPt = New Double() {latPos, spanEnd}
-                    End If
+                        barIndex += 1
 
-                    Dim bar As New TrimmedBearingBar()
-                    bar.BarIndex = barIndex
-                    bar.Mark = params.ResolvedPrefix & "-BB-" & barIndex
-                    bar.StartPoint = startPt
-                    bar.EndPoint = endPt
-                    bar.Length = barLength
-                    bar.SpanDirection = params.SpanDirection
-                    bar.LateralPosition = latPos
+                        Dim startPt As Double()
+                        Dim endPt As Double()
 
-                    bars.Add(bar)
+                        If params.SpanDirection = SpanDirectionType.AlongX Then
+                            startPt = New Double() {subStart, latPos}
+                            endPt = New Double() {subEnd, latPos}
+                        Else
+                            startPt = New Double() {latPos, subStart}
+                            endPt = New Double() {latPos, subEnd}
+                        End If
+
+                        Dim bar As New TrimmedBearingBar()
+                        bar.BarIndex = barIndex
+                        bar.Mark = params.ResolvedPrefix & "-BB-" & barIndex
+                        bar.StartPoint = startPt
+                        bar.EndPoint = endPt
+                        bar.Length = subLength
+                        bar.SpanDirection = params.SpanDirection
+                        bar.LateralPosition = latPos
+
+                        bars.Add(bar)
+                    Next
                 Next
             Next
 
@@ -1064,6 +1076,7 @@ Public Class BearingBarLayoutService
     Private Structure ArcEdgeContext
         Public CenterX As Double
         Public CenterY As Double
+        Public ArcRadius As Double
         Public InnerFaceRadius As Double
     End Structure
 
@@ -1105,6 +1118,7 @@ Public Class BearingBarLayoutService
             Dim ctx As New ArcEdgeContext() With {
                 .CenterX = arc.CenterX,
                 .CenterY = arc.CenterY,
+                .ArcRadius = arc.Radius,
                 .InnerFaceRadius = innerFaceR}
 
             ' Arc occupies VertexCount vertices (entry + intermediate);
@@ -1130,6 +1144,93 @@ Public Class BearingBarLayoutService
         Next
 
         Return map
+    End Function
+
+    ''' <summary>
+    ''' Splits a single (spanStart, spanEnd) bearing-bar segment around
+    ''' every arc whose body intersects the bar's body but whose
+    ''' centerline the chord scan missed.  Handles the case the user
+    ''' showed in v1.5.17 where one bar still ran through the arc: its
+    ''' lateral centerline sat just outside [Cx-R, Cx+R], so no arc
+    ''' chord was crossed, but the bar's near edge protruded into the
+    ''' band bar.  Result: 0, 1, or 2 sub-segments per input segment.
+    '''
+    ''' Centerline-IN-arc cases (|latPos - cLat| ≤ R) are already
+    ''' trimmed by the v1.5.17 chord-arc replacement in
+    ''' FindScanIntersections, so they're skipped here to avoid
+    ''' double-cutting.
+    ''' </summary>
+    Private Function ApplyArcBodyCuts(
+            spanStart As Double, spanEnd As Double,
+            latPos As Double, barWidth As Double,
+            arcEdgeMap As Dictionary(Of Integer, ArcEdgeContext),
+            latIdx As Integer, spanIdx As Integer) As List(Of Double())
+
+        Dim segments As New List(Of Double())
+        segments.Add(New Double() {spanStart, spanEnd})
+
+        If arcEdgeMap Is Nothing OrElse arcEdgeMap.Count = 0 Then
+            Return segments
+        End If
+
+        Dim halfBW As Double = barWidth / 2.0
+        Dim seen As New HashSet(Of String)
+
+        For Each ctx As ArcEdgeContext In arcEdgeMap.Values
+            Dim key As String =
+                ctx.CenterX.ToString("F6") & "|" &
+                ctx.CenterY.ToString("F6") & "|" &
+                ctx.InnerFaceRadius.ToString("F6")
+            If Not seen.Add(key) Then Continue For
+
+            Dim cLat As Double = If(latIdx = 0, ctx.CenterX, ctx.CenterY)
+            Dim cSpan As Double = If(spanIdx = 0, ctx.CenterX, ctx.CenterY)
+            Dim absDy As Double = Math.Abs(latPos - cLat)
+
+            ' Skip arcs the chord scan already trimmed (v1.5.17 path):
+            ' the bar's centerline sits inside the arc radius, so chord
+            ' edges were crossed and the inner-face circle was already
+            ' substituted for them in FindScanIntersections.
+            If absDy <= ctx.ArcRadius + Tolerance Then Continue For
+
+            ' Body-cut: cut zone exists when the bar's near edge sits
+            ' inside the inner-face circle.  nearEdgeDy uses the bar's
+            ' near edge (corner-aware), matching the v1.5.17 nearEdgeDy
+            ' derivation.
+            Dim nearEdgeDy As Double = absDy - halfBW
+            If nearEdgeDy < 0 Then nearEdgeDy = 0
+            Dim disc As Double =
+                ctx.InnerFaceRadius * ctx.InnerFaceRadius -
+                nearEdgeDy * nearEdgeDy
+            If disc <= 0 Then Continue For ' bar's body is clear of arc
+
+            Dim root As Double = Math.Sqrt(disc)
+            Dim cutLow As Double = cSpan - root
+            Dim cutHigh As Double = cSpan + root
+
+            ' Subtract (cutLow, cutHigh) from each current segment.
+            Dim newSegments As New List(Of Double())
+            For Each seg As Double() In segments
+                Dim s As Double = seg(0)
+                Dim e As Double = seg(1)
+                If e <= cutLow OrElse s >= cutHigh Then
+                    newSegments.Add(seg) ' no overlap, keep as-is
+                ElseIf s >= cutLow AndAlso e <= cutHigh Then
+                    ' Segment lies entirely inside the cut zone — drop.
+                ElseIf s < cutLow AndAlso e <= cutHigh Then
+                    newSegments.Add(New Double() {s, cutLow})
+                ElseIf s >= cutLow AndAlso e > cutHigh Then
+                    newSegments.Add(New Double() {cutHigh, e})
+                Else
+                    ' Cut zone strictly inside segment — split into two.
+                    newSegments.Add(New Double() {s, cutLow})
+                    newSegments.Add(New Double() {cutHigh, e})
+                End If
+            Next
+            segments = newSegments
+        Next
+
+        Return segments
     End Function
 
 #End Region
