@@ -1008,9 +1008,21 @@ Public Class BearingBarLayoutService
                 Dim ctx As ArcEdgeContext = arcEdgeMap(ei)
                 Dim cLat As Double = If(latIdx = 0, ctx.CenterX, ctx.CenterY)
                 Dim cSpan As Double = If(spanIdx = 0, ctx.CenterX, ctx.CenterY)
-                Dim dy As Double = latPos - cLat
+                ' Use the bar's NEAR EDGE (latPos ± halfBarWidth, whichever
+                ' is closer to cLat), not its centerline.  Otherwise the
+                ' bar's corner protrudes ~halfBarWidth past the inner face
+                ' into the curved band bar's body.  When the bar straddles
+                ' cLat (|latPos − cLat| ≤ halfBW), the closest point on
+                ' the bar to the arc centre lies on its edge at Y = cLat,
+                ' so nearEdgeDy collapses to zero and X = cSpan ± innerR.
+                Dim halfBW As Double = barWidth / 2.0
+                Dim dyCenter As Double = latPos - cLat
+                Dim absDy As Double = Math.Abs(dyCenter)
+                Dim nearEdgeDy As Double =
+                    If(absDy <= halfBW, 0.0, absDy - halfBW)
                 Dim disc As Double =
-                    ctx.InnerFaceRadius * ctx.InnerFaceRadius - dy * dy
+                    ctx.InnerFaceRadius * ctx.InnerFaceRadius -
+                    nearEdgeDy * nearEdgeDy
                 If disc >= 0 Then
                     Dim root As Double = Math.Sqrt(disc)
                     Dim r1 As Double = cSpan + root

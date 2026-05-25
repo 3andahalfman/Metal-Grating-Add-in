@@ -766,9 +766,20 @@ Public Class CrossBarPartGenerator
                 Dim ctx As CrossBarArcEdgeContext = arcEdgeMap(ei)
                 Dim cSpan As Double = If(spanIdx = 0, ctx.CenterX, ctx.CenterY)
                 Dim cLat As Double = If(lateralIdx = 0, ctx.CenterX, ctx.CenterY)
-                Dim dy As Double = spanPos - cSpan
+                ' Use the cross bar's NEAR EDGE along the span axis
+                ' (spanPos ± halfBarWidth, whichever is closer to cSpan),
+                ' not its centerline.  Otherwise the bar's corner
+                ' protrudes ~halfBarWidth past the inner face into the
+                ' curved band bar's body.  Mirrors the bearing-bar fix
+                ' in BearingBarLayoutService (v1.5.17).
+                Dim halfBW As Double = barWidth / 2.0
+                Dim dyCenter As Double = spanPos - cSpan
+                Dim absDy As Double = Math.Abs(dyCenter)
+                Dim nearEdgeDy As Double =
+                    If(absDy <= halfBW, 0.0, absDy - halfBW)
                 Dim disc As Double =
-                    ctx.InnerFaceRadius * ctx.InnerFaceRadius - dy * dy
+                    ctx.InnerFaceRadius * ctx.InnerFaceRadius -
+                    nearEdgeDy * nearEdgeDy
                 If disc >= 0 Then
                     Dim root As Double = Math.Sqrt(disc)
                     Dim r1 As Double = cLat + root
